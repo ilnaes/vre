@@ -10,10 +10,13 @@ import (
 
 const console string = "/dev/tty"
 
+// Terminal acts as the view
 type Terminal struct {
 	origState *terminal.State
 	fd        int
 	q         *Queue
+	width     int
+	height    int
 }
 
 func NewTerminal(q *Queue) *Terminal {
@@ -22,6 +25,19 @@ func NewTerminal(q *Queue) *Terminal {
 	}
 }
 
+func (t *Terminal) Loop() {
+}
+
+// GetSize gets the size of the terminal
+func (t *Terminal) GetSize() {
+	w, h, err := terminal.GetSize(t.fd)
+	if err != nil {
+		t.width = w
+		t.height = h
+	}
+}
+
+// Init saves current state of terminal, sets up raw mode and alternate screen buffer
 func (t *Terminal) Init() {
 	tty, err := os.OpenFile(console, syscall.O_RDONLY, 0)
 	if err != nil {
@@ -42,6 +58,7 @@ func (t *Terminal) Init() {
 	fmt.Fprintf(os.Stderr, "\x1b[H")
 }
 
+// Close closes alternate screen buffer and restores original terminal state
 func (t *Terminal) Close() {
 	fmt.Fprintf(os.Stderr, "\x1b[?1049l")
 	terminal.Restore(t.fd, t.origState)
