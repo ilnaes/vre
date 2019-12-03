@@ -7,25 +7,26 @@ import (
 	"os"
 )
 
-func read(g chan bool) {
+func read() {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+		fmt.Fprintf(os.Stdout, scanner.Text()+"\n")
 	}
-	g <- true
 }
 
 // Run is the actual program entry point
 func Run() {
-	gate := make(chan bool)
+	t := Terminal{}
+
+	t.Init()
+	t.GetEvent()
+	t.Close()
+
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		// piping in data
-		go read(gate)
+		read()
 	} else {
-		fmt.Println(len(os.Args))
+		fmt.Fprintf(os.Stdout, "%d\n", len(os.Args))
 	}
-
-	<-gate
-	fmt.Println("DONE")
 }
