@@ -57,6 +57,7 @@ func (t *Terminal) Loop() {
 		// read a byte from terminal input
 		select {
 		case <-winchChan:
+			t.GetSize()
 			t.Refresh()
 
 		case b := <-inChan:
@@ -81,14 +82,20 @@ func (t *Terminal) Loop() {
 
 			case KEY_DEL:
 				if len(t.input) > 0 {
-					t.input = t.input[0 : len(t.input)-1]
-					t.Refresh()
+					if t.xOffset < len(t.input) {
+						t.input = t.input[0:len(t.input)-t.xOffset-1] + t.input[len(t.input)-t.xOffset:]
+						t.Refresh()
+					}
 				}
 
 			default:
 				if b >= 20 && b <= 126 {
 					// printable chars
-					t.input += string(b)
+					if t.xOffset == len(t.input) {
+						t.input = string(b) + t.input
+					} else {
+						t.input = t.input[0:len(t.input)-t.xOffset] + string(b) + t.input[len(t.input)-t.xOffset:]
+					}
 					t.Refresh()
 				}
 			}
@@ -134,7 +141,6 @@ func (t *Terminal) getch(ch chan int) {
 func (t *Terminal) Refresh() {
 	t.mu.Lock()
 
-	t.GetSize()
 	csi("2J")
 	csi("H")
 
@@ -145,6 +151,13 @@ func (t *Terminal) Refresh() {
 		for i := 0; i < ch.num; i++ {
 			buf += ch.lines[i] + "\r\n"
 			nrows++
+
+			if nrows > t.height-2 {
+				break
+			}
+		}
+		if nrows > t.height-2 {
+			break
 		}
 	}
 
@@ -154,7 +167,6 @@ func (t *Terminal) Refresh() {
 
 	// prompt
 	buf += "\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.input + "\x1b[0m"
-
 	if t.xOffset > 0 {
 		buf += "\x1b[" + strconv.Itoa(t.xOffset) + "D"
 	}
@@ -199,6 +211,7 @@ func (t *Terminal) Init() {
 	t.origState = origState
 	t.GetSize()
 	terminal.MakeRaw(t.fd)
+	t.GetSize()
 
 	csi("?1049h")
 }

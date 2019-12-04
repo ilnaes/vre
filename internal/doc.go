@@ -8,7 +8,7 @@ import (
 )
 
 // ChunkSize is the number of lines in a chunk (XXX: this should be changed to be more reasonable later)
-const ChunkSize int = 2
+const ChunkSize int = 10
 
 type Chunk struct {
 	lines [ChunkSize]string
@@ -62,7 +62,7 @@ func (d *Doc) Read(io *os.File) {
 			chunk = &Chunk{}
 			d.mainEb.Put(EvtReadNew, nil)
 			// XXX: used to simulate delay
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 
