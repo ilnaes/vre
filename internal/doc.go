@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"sync"
+	"time"
 )
 
 // ChunkSize is the number of lines in a chunk (XXX: this should be changed to be more reasonable later)
@@ -16,10 +17,11 @@ type Chunk struct {
 
 // Doc acts as the model
 type Doc struct {
+	mu     sync.Mutex
+	mainEb *EventBox
+
 	chunks    []*Chunk
-	mu        sync.Mutex
 	numChunks int
-	mainEb    *EventBox
 }
 
 func NewDoc(eb *EventBox) *Doc {
@@ -30,10 +32,22 @@ func NewDoc(eb *EventBox) *Doc {
 	}
 }
 
+// Snapshot returns the current items in the document
+func (d *Doc) Snapshot() (*[]*Chunk, int) {
+	d.mu.Lock()
+
+	res := make([]*Chunk, d.numChunks)
+	copy(res, d.chunks)
+
+	d.mu.Unlock()
+
+	return &res, d.numChunks
+}
+
 // Read reads the file in ChunkSize chunks and appends to Doc
 func (d *Doc) Read(io *os.File) {
 	scanner := bufio.NewScanner(io)
-	chunk := Chunk{}
+	chunk := &Chunk{}
 
 	for scanner.Scan() {
 		chunk.lines[chunk.num] = scanner.Text()
@@ -41,18 +55,19 @@ func (d *Doc) Read(io *os.File) {
 
 		if chunk.num == ChunkSize {
 			d.mu.Lock()
-			d.chunks = append(d.chunks, &chunk)
+			d.chunks = append(d.chunks, chunk)
 			d.numChunks++
 			d.mu.Unlock()
 
-			chunk = Chunk{}
+			chunk = &Chunk{}
 			d.mainEb.Put(EvtReadNew, nil)
+			time.Sleep(1 * time.Second)
 		}
 	}
 
 	if chunk.num != 0 {
 		d.mu.Lock()
-		d.chunks = append(d.chunks, &chunk)
+		d.chunks = append(d.chunks, chunk)
 		d.numChunks++
 		d.mu.Unlock()
 	}

@@ -26,10 +26,13 @@ func Run() {
 			for eventType := range *e {
 				switch eventType {
 
+				case EvtReadNew, EvtReadDone:
+					ss, _ := doc.Snapshot()
+					tui.UpdateChunks(ss)
+
 				case EvtQuit:
 					done = true
 
-				case EvtReadDone:
 				}
 			}
 			eb.Clear()
