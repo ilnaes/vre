@@ -5,6 +5,7 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
@@ -23,9 +24,10 @@ type Terminal struct {
 	mainEb    *EventBox
 	mu        sync.Mutex
 
-	width  int
-	height int
-	posY   int
+	width   int
+	height  int
+	posY    int
+	xOffset int
 
 	prompt string
 	input  string
@@ -42,7 +44,11 @@ func NewTerminal(eb *EventBox) *Terminal {
 
 func (t *Terminal) Loop() {
 	t.Init()
-	inChan := make(chan byte)
+	inChan := make(chan int)
+	winchChan := make(chan os.Signal)
+
+	// set up signal for window resize
+	signal.Notify(winchChan, syscall.SIGWINCH)
 
 	go t.getch(inChan)
 
@@ -50,52 +56,115 @@ func (t *Terminal) Loop() {
 	for !done {
 		// read a byte from terminal input
 		select {
+		case <-winchChan:
+			t.Refresh()
+
 		case b := <-inChan:
 			switch b {
-			case 97:
+			case KEY_CTRLC:
+				// Ctrl-C quit
 				t.Close()
 				t.mainEb.Put(EvtQuit, nil)
+				done = true
+
+			case KEY_LEFT:
+				if t.xOffset < len(t.input) {
+					t.xOffset++
+					t.Refresh()
+				}
+
+			case KEY_RIGHT:
+				if t.xOffset > 0 {
+					t.xOffset--
+					t.Refresh()
+				}
+
+			case KEY_DEL:
+				if len(t.input) > 0 {
+					t.input = t.input[0 : len(t.input)-1]
+					t.Refresh()
+				}
+
 			default:
-				t.misc = append(t.misc, strconv.Itoa(int(b)))
-				t.Refresh()
+				if b >= 20 && b <= 126 {
+					// printable chars
+					t.input += string(b)
+					t.Refresh()
+				}
 			}
 		}
 	}
 }
 
-func (t *Terminal) getch(ch chan byte) {
+func (t *Terminal) getch(ch chan int) {
 	b := make([]byte, 1)
 
 	done := false
 	for !done {
 		syscall.Read(t.fd, b)
-		ch <- b[0]
 
-		if int(b[0]) == 17 {
-			done = true
+		if b[0] == KEY_ESC {
+			// escaped
+			syscall.Read(t.fd, b)
+
+			if b[0] != 91 {
+				// not escape sequence
+				ch <- int(b[0])
+				continue
+			}
+
+			syscall.Read(t.fd, b)
+
+			if b[0] == 68 {
+				ch <- KEY_LEFT
+			} else if b[0] == 67 {
+				ch <- KEY_RIGHT
+			}
+		} else {
+			ch <- int(b[0])
+
+			if int(b[0]) == KEY_CTRLC {
+				done = true
+			}
 		}
 	}
 }
 
+// Refresh clears screen and prints contents
 func (t *Terminal) Refresh() {
+	t.mu.Lock()
+
+	t.GetSize()
 	csi("2J")
 	csi("H")
 
 	buf := ""
 
+	nrows := 0
 	for _, ch := range *t.chunks {
 		for i := 0; i < ch.num; i++ {
 			buf += ch.lines[i] + "\r\n"
+			nrows++
 		}
 	}
 
-	for _, s := range t.misc {
-		buf += s + "\r\n"
+	for j := 0; j < t.height-nrows-1; j++ {
+		buf += "\r\n"
 	}
+
+	// prompt
+	buf += "\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.input + "\x1b[0m"
+
+	if t.xOffset > 0 {
+		buf += "\x1b[" + strconv.Itoa(t.xOffset) + "D"
+	}
+
+	t.mu.Unlock()
 
 	fmt.Fprintf(os.Stderr, buf)
 }
 
+// UpdateChunks saves input snapshot
 func (t *Terminal) UpdateChunks(chunks *[]*Chunk) {
 	t.mu.Lock()
 	t.chunks = chunks
@@ -108,9 +177,10 @@ func (t *Terminal) UpdateChunks(chunks *[]*Chunk) {
 func (t *Terminal) GetSize() {
 	w, h, err := terminal.GetSize(t.fd)
 	if err != nil {
-		t.width = w
-		t.height = h
+		log.Fatal("Could not get terminal size")
 	}
+	t.width = w
+	t.height = h
 }
 
 // Init saves current state of terminal, sets up raw mode and alternate screen buffer
@@ -131,12 +201,6 @@ func (t *Terminal) Init() {
 	terminal.MakeRaw(t.fd)
 
 	csi("?1049h")
-	csi("2J")
-	csi("H")
-
-	// fmt.Fprintf(os.Stderr, "\x1b[?1049h")
-	// fmt.Fprintf(os.Stderr, "\x1b[2J")
-	// fmt.Fprintf(os.Stderr, "\x1b[H")
 }
 
 // Close closes alternate screen buffer and restores original terminal state

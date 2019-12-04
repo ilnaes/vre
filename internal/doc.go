@@ -61,7 +61,8 @@ func (d *Doc) Read(io *os.File) {
 
 			chunk = &Chunk{}
 			d.mainEb.Put(EvtReadNew, nil)
-			time.Sleep(1 * time.Second)
+			// XXX: used to simulate delay
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 
