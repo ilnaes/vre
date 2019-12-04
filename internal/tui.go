@@ -14,18 +14,35 @@ const console string = "/dev/tty"
 type Terminal struct {
 	origState *terminal.State
 	fd        int
-	q         *Queue
+	mainEb    *EventBox
 	width     int
 	height    int
+	posY      int
+	prompt    string
+	input     string
 }
 
-func NewTerminal(q *Queue) *Terminal {
+func NewTerminal(eb *EventBox) *Terminal {
 	return &Terminal{
-		q: q,
+		mainEb: eb,
 	}
 }
 
 func (t *Terminal) Loop() {
+	t.Init()
+
+	b := make([]byte, 1)
+	done := false
+
+	for !done {
+		// read a byte from terminal input
+		syscall.Read(t.fd, b)
+		if int(b[0]) == 97 {
+			t.Close()
+			done = true
+			t.mainEb.Put(EvtQuit, nil)
+		}
+	}
 }
 
 // GetSize gets the size of the terminal
@@ -41,16 +58,17 @@ func (t *Terminal) GetSize() {
 func (t *Terminal) Init() {
 	tty, err := os.OpenFile(console, syscall.O_RDONLY, 0)
 	if err != nil {
-		log.Fatal("BAD")
+		log.Fatal("Could not open file")
 	}
 	t.fd = int(tty.Fd())
 
 	origState, err := terminal.GetState(t.fd)
 	if err != nil {
-		log.Fatal("BAD")
+		log.Fatal("Could not get terminal state")
 	}
 
 	t.origState = origState
+	t.GetSize()
 	terminal.MakeRaw(t.fd)
 
 	fmt.Fprintf(os.Stderr, "\x1b[?1049h")
@@ -62,17 +80,4 @@ func (t *Terminal) Init() {
 func (t *Terminal) Close() {
 	fmt.Fprintf(os.Stderr, "\x1b[?1049l")
 	terminal.Restore(t.fd, t.origState)
-}
-
-func (t *Terminal) GetEvent() {
-	b := make([]byte, 1)
-
-	done := false
-	for !done {
-		syscall.Read(t.fd, b)
-		fmt.Fprintf(os.Stderr, "%d\r\n", int(b[0]))
-		if int(b[0]) == 97 {
-			done = true
-		}
-	}
 }
