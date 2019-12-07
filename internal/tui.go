@@ -24,15 +24,17 @@ type Terminal struct {
 	mainEb    *EventBox
 	mu        sync.Mutex
 
-	width   int
-	height  int
-	posY    int
-	xOffset int
+	width  int
+	height int
+	posY   int
+	posX   int
+	offset int // cursor offset
 
-	prompt string
-	input  string
-	misc   []string
-	chunks *[]*Chunk
+	prompt   string
+	input    string
+	misc     []string
+	chunks   *[]*Chunk
+	numLines int
 }
 
 func NewTerminal(eb *EventBox) *Terminal {
@@ -43,7 +45,6 @@ func NewTerminal(eb *EventBox) *Terminal {
 }
 
 func (t *Terminal) Loop() {
-	t.Init()
 	inChan := make(chan int)
 	winchChan := make(chan os.Signal)
 
@@ -68,22 +69,53 @@ func (t *Terminal) Loop() {
 				t.mainEb.Put(EvtQuit, nil)
 				done = true
 
+			case KEY_CTRLJ:
+				if t.posY+t.height-1 < t.numLines {
+					t.posY++
+					t.Refresh()
+				}
+
+			case KEY_CTRLK:
+				if t.posY > 0 {
+					t.posY--
+					t.Refresh()
+				}
+
+			case KEY_CTRLF:
+				if t.posY+t.height-1 < t.numLines {
+					t.posY += t.height
+					if t.posY+t.height-1 > t.numLines {
+						t.posY = t.numLines - t.height + 1
+					}
+					t.Refresh()
+				}
+
+			case KEY_CTRLB:
+				if t.posY > 0 {
+					t.posY -= t.height
+					if t.posY < 0 {
+						t.posY = 0
+					}
+					t.Refresh()
+				}
+
 			case KEY_LEFT:
-				if t.xOffset < len(t.input) {
-					t.xOffset++
+				if t.offset < len(t.input) {
+					t.offset++
 					t.Refresh()
 				}
 
 			case KEY_RIGHT:
-				if t.xOffset > 0 {
-					t.xOffset--
+				if t.offset > 0 {
+					t.offset--
 					t.Refresh()
 				}
 
 			case KEY_DEL:
 				if len(t.input) > 0 {
-					if t.xOffset < len(t.input) {
-						t.input = t.input[0:len(t.input)-t.xOffset-1] + t.input[len(t.input)-t.xOffset:]
+					if t.offset < len(t.input) {
+						t.input = t.input[0:len(t.input)-t.offset-1] + t.input[len(t.input)-t.offset:]
+						t.mainEb.Put(EvtSearchNew, t.input)
 						t.Refresh()
 					}
 				}
@@ -91,11 +123,12 @@ func (t *Terminal) Loop() {
 			default:
 				if b >= 20 && b <= 126 {
 					// printable chars
-					if t.xOffset == len(t.input) {
+					if t.offset == len(t.input) {
 						t.input = string(b) + t.input
 					} else {
-						t.input = t.input[0:len(t.input)-t.xOffset] + string(b) + t.input[len(t.input)-t.xOffset:]
+						t.input = t.input[0:len(t.input)-t.offset] + string(b) + t.input[len(t.input)-t.offset:]
 					}
+					t.mainEb.Put(EvtSearchNew, t.input)
 					t.Refresh()
 				}
 			}
@@ -147,15 +180,22 @@ func (t *Terminal) Refresh() {
 	buf := ""
 
 	nrows := 0
-	for _, ch := range *t.chunks {
-		for i := 0; i < ch.num; i++ {
-			buf += ch.lines[i] + "\r\n"
+	ch := t.posY / ChunkSize
+	i := t.posY - ch*ChunkSize
+
+	// prints lines in view
+	for ; ch < len(*t.chunks); ch++ {
+		chunk := (*t.chunks)[ch]
+		for ; i < chunk.num; i++ {
+			buf += chunk.lines[i] + "\r\n"
 			nrows++
 
 			if nrows > t.height-2 {
 				break
 			}
 		}
+		i = 0
+
 		if nrows > t.height-2 {
 			break
 		}
@@ -166,9 +206,9 @@ func (t *Terminal) Refresh() {
 	}
 
 	// prompt
-	buf += "\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.input + "\x1b[0m"
-	if t.xOffset > 0 {
-		buf += "\x1b[" + strconv.Itoa(t.xOffset) + "D"
+	buf += "\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.prompt + t.input + "\x1b[0m"
+	if t.offset > 0 {
+		buf += "\x1b[" + strconv.Itoa(t.offset) + "D"
 	}
 
 	t.mu.Unlock()
@@ -180,6 +220,10 @@ func (t *Terminal) Refresh() {
 func (t *Terminal) UpdateChunks(chunks *[]*Chunk) {
 	t.mu.Lock()
 	t.chunks = chunks
+	t.numLines = 0
+	for _, c := range *t.chunks {
+		t.numLines += c.num
+	}
 	t.mu.Unlock()
 
 	t.Refresh()

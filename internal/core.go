@@ -18,6 +18,7 @@ func Run() {
 		fmt.Fprintf(os.Stdout, "%d\n", len(os.Args))
 	}
 
+	tui.Init()
 	go tui.Loop()
 
 	done := false
