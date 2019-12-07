@@ -9,11 +9,11 @@ import (
 func Run() {
 	eb := NewEventBox()
 	tui := NewTerminal(eb)
-	doc := NewDoc(eb)
+	reader := NewReader(eb)
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		// piping in data
-		go doc.Read(os.Stdin)
+		go reader.Read(os.Stdin)
 	} else {
 		fmt.Fprintf(os.Stdout, "%d\n", len(os.Args))
 	}
@@ -24,11 +24,11 @@ func Run() {
 	done := false
 	for !done {
 		eb.Wait(func(e *Events) {
-			for eventType := range *e {
+			for eventType, _ := range *e {
 				switch eventType {
 
 				case EvtReadNew, EvtReadDone:
-					ss, _ := doc.Snapshot()
+					ss := reader.Snapshot()
 					tui.UpdateChunks(ss)
 
 				case EvtQuit:

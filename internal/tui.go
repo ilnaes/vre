@@ -33,7 +33,7 @@ type Terminal struct {
 	prompt   string
 	input    string
 	misc     []string
-	chunks   *[]*Chunk
+	doc      *[]*Chunk
 	numLines int
 }
 
@@ -136,7 +136,7 @@ func (t *Terminal) Loop() {
 	}
 }
 
-func (t *Terminal) getch(ch chan int) {
+func (t *Terminal) getch(ch chan<- int) {
 	b := make([]byte, 1)
 
 	done := false
@@ -184,8 +184,8 @@ func (t *Terminal) Refresh() {
 	i := t.posY - ch*ChunkSize
 
 	// prints lines in view
-	for ; ch < len(*t.chunks); ch++ {
-		chunk := (*t.chunks)[ch]
+	for ; ch < len(*t.doc); ch++ {
+		chunk := (*t.doc)[ch]
 		for ; i < chunk.num; i++ {
 			buf += chunk.lines[i] + "\r\n"
 			nrows++
@@ -217,15 +217,16 @@ func (t *Terminal) Refresh() {
 }
 
 // UpdateChunks saves input snapshot
-func (t *Terminal) UpdateChunks(chunks *[]*Chunk) {
+func (t *Terminal) UpdateChunks(d *[]*Chunk) {
 	t.mu.Lock()
-	t.chunks = chunks
+
+	t.doc = d
 	t.numLines = 0
-	for _, c := range *t.chunks {
+	for _, c := range *t.doc {
 		t.numLines += c.num
 	}
-	t.mu.Unlock()
 
+	t.mu.Unlock()
 	t.Refresh()
 }
 
