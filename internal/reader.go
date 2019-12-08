@@ -60,11 +60,11 @@ func (r *Reader) Read(io *os.File) {
 }
 
 // Snapshot returns the current items in the document
-func (r *Reader) Snapshot() *[]*Chunk {
+func (r *Reader) Snapshot() []*Chunk {
 	r.mu.Lock()
 	res := make([]*Chunk, len(r.doc))
 	copy(res, r.doc)
 	r.mu.Unlock()
 
-	return &res
+	return res
 }

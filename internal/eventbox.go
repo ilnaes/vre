@@ -13,10 +13,10 @@ type EventBox struct {
 }
 
 func NewEventBox() *EventBox {
-	m := sync.Mutex{}
+	m := &sync.Mutex{}
 
 	return &EventBox{
-		cond:   sync.NewCond(&m),
+		cond:   sync.NewCond(m),
 		events: make(map[EventType]interface{}),
 	}
 }

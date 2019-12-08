@@ -30,7 +30,11 @@ func Run() {
 				switch eventType {
 
 				case EvtSearchNew:
-					re.UpdateRe(v.(string))
+					s := v.(string)
+					re.UpdateRe(s)
+					if len(s) == 0 {
+						tui.ClearBounds()
+					}
 
 				case EvtSearchProgress:
 					tui.UpdatePrompt(fmt.Sprintf("%v", v))
@@ -43,6 +47,8 @@ func Run() {
 
 				case EvtQuit:
 					done = true
+
+				default:
 
 				}
 			}

@@ -13,7 +13,7 @@ type Re struct {
 	mu      sync.Mutex
 	sleep   bool
 
-	doc  *[]*Chunk
+	doc  []*Chunk
 	res  [][ChunkSize][][]int
 	num  int // size of res
 	curr int // current chunk processing
@@ -36,11 +36,12 @@ func (re *Re) Loop() {
 		for {
 			re.mu.Lock()
 
-			if re.doc == nil || re.prog == nil || re.curr >= len(*re.doc) {
+			// only way to exit the inner loop
+			if re.doc == nil || re.prog == nil || re.curr >= len(re.doc) {
 				break
 			}
 
-			ch := (*re.doc)[re.curr]
+			ch := re.doc[re.curr]
 
 			// allocate new result chunk
 			for ; re.num <= re.curr; re.num++ {
@@ -48,7 +49,7 @@ func (re *Re) Loop() {
 			}
 
 			for i, s := range ch.lines {
-				re.res[re.curr][i] = re.prog.FindAllStringIndex(s, -1)
+				re.res[re.curr][i] = re.prog.FindAllStringIndex(s, 1)
 			}
 
 			re.mainEb.Put(EvtSearchProgress, re.res)
@@ -77,7 +78,7 @@ func (re *Re) Finish(b bool) {
 	re.localEb.Put(EvtFinish, b)
 }
 
-func (re *Re) UpdateDoc(d *[]*Chunk) {
+func (re *Re) UpdateDoc(d []*Chunk) {
 	re.mu.Lock()
 	re.doc = d
 
@@ -90,7 +91,11 @@ func (re *Re) UpdateDoc(d *[]*Chunk) {
 
 // UpdateRe updates the regexp if possible
 func (re *Re) UpdateRe(s string) {
-	if s == "" {
+	if len(s) == 0 {
+		re.mu.Lock()
+		re.prog = nil
+		re.curr = 0
+		re.mu.Unlock()
 		return
 	}
 	r, err := regexp.Compile(s)
@@ -101,6 +106,7 @@ func (re *Re) UpdateRe(s string) {
 	re.mu.Lock()
 	re.prog = r
 	re.curr = 0
+
 	if re.sleep {
 		re.sleep = false
 		re.localEb.Put(EvtFinish, false)

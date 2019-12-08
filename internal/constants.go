@@ -7,6 +7,7 @@ const (
 	EvtSearchNew
 	EvtFinish
 	EvtSearchProgress
+	EvtSearchCancel
 )
 
 const (

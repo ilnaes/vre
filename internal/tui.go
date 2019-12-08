@@ -16,6 +16,13 @@ func csi(s string) {
 	fmt.Fprintf(os.Stderr, "\x1b["+s)
 }
 
+func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i int, ansi string) string {
+	if bounds == nil || len(bounds) < ch+1 || len(bounds[ch][i]) == 0 {
+		return doc[ch].lines[i] + "\r\n"
+	}
+	return "\r\n"
+}
+
 const console string = "/dev/tty"
 
 // Terminal acts as the view
@@ -34,7 +41,7 @@ type Terminal struct {
 	prompt   string
 	input    string
 	misc     []string
-	doc      *[]*Chunk
+	doc      []*Chunk
 	bounds   [][ChunkSize][][]int
 	numLines int
 }
@@ -186,11 +193,11 @@ func (t *Terminal) Refresh() {
 	i := t.posY - ch*ChunkSize
 
 	// prints lines in view
-	for ; ch < len(*t.doc); ch++ {
-		chunk := (*t.doc)[ch]
+	for ; ch < len(t.doc); ch++ {
+		chunk := t.doc[ch]
 
 		for ; i < chunk.num; i++ {
-			buf.WriteString(chunk.lines[i] + "\r\n")
+			buf.WriteString(getLine(t.doc, t.bounds, ch, i, "\x1b[31;1m"))
 			nrows++
 
 			if nrows > t.height-2 {
@@ -219,6 +226,13 @@ func (t *Terminal) Refresh() {
 	fmt.Fprintf(os.Stderr, buf.String())
 }
 
+func (t *Terminal) ClearBounds() {
+	t.mu.Lock()
+	t.bounds = nil
+	t.mu.Unlock()
+	t.Refresh()
+}
+
 func (t *Terminal) UpdateBounds(x [][ChunkSize][][]int) {
 	t.mu.Lock()
 	t.bounds = x
@@ -234,12 +248,12 @@ func (t *Terminal) UpdatePrompt(s string) {
 }
 
 // UpdateChunks saves input snapshot
-func (t *Terminal) UpdateChunks(d *[]*Chunk) {
+func (t *Terminal) UpdateChunks(d []*Chunk) {
 	t.mu.Lock()
 
 	t.doc = d
 	t.numLines = 0
-	for _, c := range *t.doc {
+	for _, c := range t.doc {
 		t.numLines += c.num
 	}
 
