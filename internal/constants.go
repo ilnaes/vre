@@ -5,6 +5,8 @@ const (
 	EvtReadDone
 	EvtQuit
 	EvtSearchNew
+	EvtFinish
+	EvtSearchProgress
 )
 
 const (

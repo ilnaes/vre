@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 )
@@ -34,6 +35,7 @@ type Terminal struct {
 	input    string
 	misc     []string
 	doc      *[]*Chunk
+	bounds   [][ChunkSize][][]int
 	numLines int
 }
 
@@ -177,7 +179,7 @@ func (t *Terminal) Refresh() {
 	csi("2J")
 	csi("H")
 
-	buf := ""
+	var buf strings.Builder
 
 	nrows := 0
 	ch := t.posY / ChunkSize
@@ -186,8 +188,9 @@ func (t *Terminal) Refresh() {
 	// prints lines in view
 	for ; ch < len(*t.doc); ch++ {
 		chunk := (*t.doc)[ch]
+
 		for ; i < chunk.num; i++ {
-			buf += chunk.lines[i] + "\r\n"
+			buf.WriteString(chunk.lines[i] + "\r\n")
 			nrows++
 
 			if nrows > t.height-2 {
@@ -202,18 +205,32 @@ func (t *Terminal) Refresh() {
 	}
 
 	for j := 0; j < t.height-nrows-1; j++ {
-		buf += "\r\n"
+		buf.WriteString("\r\n")
 	}
 
 	// prompt
-	buf += "\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.prompt + t.input + "\x1b[0m"
+	buf.WriteString("\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.prompt + " " + t.input + "\x1b[0m")
 	if t.offset > 0 {
-		buf += "\x1b[" + strconv.Itoa(t.offset) + "D"
+		buf.WriteString("\x1b[" + strconv.Itoa(t.offset) + "D")
 	}
 
 	t.mu.Unlock()
 
-	fmt.Fprintf(os.Stderr, buf)
+	fmt.Fprintf(os.Stderr, buf.String())
+}
+
+func (t *Terminal) UpdateBounds(x [][ChunkSize][][]int) {
+	t.mu.Lock()
+	t.bounds = x
+	t.mu.Unlock()
+	t.Refresh()
+}
+
+func (t *Terminal) UpdatePrompt(s string) {
+	t.mu.Lock()
+	t.prompt = s
+	t.mu.Unlock()
+	t.Refresh()
 }
 
 // UpdateChunks saves input snapshot
