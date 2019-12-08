@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"os"
 	"sync"
-	"time"
+	// "time"
 )
 
-const ChunkSize int = 10
+const ChunkSize int = 100
 
 type Chunk struct {
 	lines [ChunkSize]string
@@ -46,7 +46,7 @@ func (r *Reader) Read(io *os.File) {
 			chunk = &Chunk{}
 			r.mainEb.Put(EvtReadNew, nil)
 			// XXX: used to simulate delay
-			time.Sleep(250 * time.Millisecond)
+			// time.Sleep(250 * time.Millisecond)
 		}
 	}
 

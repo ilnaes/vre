@@ -16,11 +16,22 @@ func csi(s string) {
 	fmt.Fprintf(os.Stderr, "\x1b["+s)
 }
 
-func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i int, ansi string) string {
+func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i int, color string) string {
 	if bounds == nil || len(bounds) < ch+1 || len(bounds[ch][i]) == 0 {
+		// all ways the intervals might not exist
 		return doc[ch].lines[i] + "\r\n"
 	}
-	return "\r\n"
+
+	last := 0
+	line := doc[ch].lines[i]
+	buf := ""
+
+	for _, I := range bounds[ch][i] {
+		buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[0m"
+		last = I[1]
+	}
+
+	return buf + line[last:] + "\r\n"
 }
 
 const console string = "/dev/tty"
@@ -216,7 +227,12 @@ func (t *Terminal) Refresh() {
 	}
 
 	// prompt
-	buf.WriteString("\x1b[31;1m> \x1b[0m\x1b[37;1m" + t.prompt + " " + t.input + "\x1b[0m")
+	buf.WriteString("\x1b[31;1m> \x1b[0m\x1b[37;1m")
+	if len(t.prompt) > 0 {
+		buf.WriteString(t.prompt + " ")
+	}
+
+	buf.WriteString(t.input + "\x1b[0m")
 	if t.offset > 0 {
 		buf.WriteString("\x1b[" + strconv.Itoa(t.offset) + "D")
 	}

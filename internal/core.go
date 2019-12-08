@@ -37,7 +37,6 @@ func Run() {
 					}
 
 				case EvtSearchProgress:
-					tui.UpdatePrompt(fmt.Sprintf("%v", v))
 					tui.UpdateBounds(v.([][ChunkSize][][]int))
 
 				case EvtReadNew, EvtReadDone:
