@@ -1,30 +1,34 @@
 package vre
 
 import (
-	// "fmt"
 	"regexp"
 	"sync"
 )
 
 type Re struct {
-	prog    *regexp.Regexp
-	mainEb  *EventBox
-	localEb *EventBox
-	mu      sync.Mutex
-	sleep   bool
+	prog     *regexp.Regexp
+	mainEb   *EventBox
+	localEb  *EventBox
+	doneChan chan<- []*string
+	mu       sync.Mutex
 
-	doc  []*Chunk
-	res  [][ChunkSize][][]int
-	num  int // size of res
-	curr int // current chunk processing
+	sleep    bool
+	finalDoc bool
+	finalRe  bool
+
+	doc     []*Chunk
+	bounds  [][ChunkSize][][]int
+	matches []*string
+	curr    int // current chunk processing
 }
 
-func NewRe(eb *EventBox) *Re {
+func NewRe(eb *EventBox, ch chan<- []*string) *Re {
 	return &Re{
-		mainEb:  eb,
-		localEb: NewEventBox(),
-		mu:      sync.Mutex{},
-		res:     make([][ChunkSize][][]int, 0),
+		mainEb:   eb,
+		localEb:  NewEventBox(),
+		mu:       sync.Mutex{},
+		bounds:   make([][ChunkSize][][]int, 0),
+		doneChan: ch,
 	}
 }
 
@@ -43,16 +47,20 @@ func (re *Re) Loop() {
 
 			ch := re.doc[re.curr]
 
-			// allocate new result chunk
-			for ; re.num <= re.curr; re.num++ {
-				re.res = append(re.res, [ChunkSize][][]int{})
+			// allocate new bound per chunk
+			for re.curr >= len(re.bounds) {
+				re.bounds = append(re.bounds, [ChunkSize][][]int{})
 			}
 
+			// record regexp output
 			for i, s := range ch.lines {
-				re.res[re.curr][i] = re.prog.FindAllStringIndex(s, 1)
+				re.bounds[re.curr][i] = re.prog.FindAllStringIndex(s, 1)
+				if len(re.bounds[re.curr][i]) > 0 {
+					re.matches = append(re.matches, &ch.lines[i])
+				}
 			}
 
-			re.mainEb.Put(EvtSearchProgress, re.res)
+			re.mainEb.Put(EvtSearchProgress, re.bounds)
 			re.curr++
 			re.mu.Unlock()
 		}
@@ -61,26 +69,55 @@ func (re *Re) Loop() {
 
 		// finished current doc and wait for signal to continue/finish
 		re.localEb.Wait(func(events *Events) {
-			for e, v := range *events {
-				if e == EvtFinish {
-					if b := v.(bool); b {
-						// finish up
-						done = true
-					}
-				}
+			// any EvtReadNew means there's more doc to consume
+			more := false
+			for e, _ := range *events {
+				more = more || (e == EvtReadNew)
 			}
+
+			re.mu.Lock()
+			// clear signals only if expecting more
+			if !re.finalDoc || !re.finalRe {
+				re.localEb.Clear()
+			}
+			done = !more && re.curr != 0
+			re.mu.Unlock()
 		})
 	}
+
+	// send results
+	re.doneChan <- re.matches
 }
 
-// Finish either localEbes the loop or restarts it
-func (re *Re) Finish(b bool) {
-	re.localEb.Put(EvtFinish, b)
-}
-
-func (re *Re) UpdateDoc(d []*Chunk) {
+func (re *Re) UpdateDoc(d []*Chunk, final bool) {
 	re.mu.Lock()
 	re.doc = d
+	re.finalDoc = re.finalDoc || final
+
+	if re.sleep {
+		re.sleep = false
+		re.localEb.Put(EvtReadNew, false)
+	}
+	re.mu.Unlock()
+}
+
+// UpdateRe updates the regexp if possible
+func (re *Re) UpdateRe(s string) {
+	r, err := regexp.Compile(s)
+
+	if len(s) == 0 || err != nil {
+		// not proper regexp
+		re.mu.Lock()
+		re.prog = nil
+		re.curr = 0
+		re.mu.Unlock()
+		return
+	}
+
+	re.mu.Lock()
+	re.prog = r
+	re.curr = 0
+	re.matches = make([]*string, 0)
 
 	if re.sleep {
 		re.sleep = false
@@ -89,27 +126,9 @@ func (re *Re) UpdateDoc(d []*Chunk) {
 	re.mu.Unlock()
 }
 
-// UpdateRe updates the regexp if possible
-func (re *Re) UpdateRe(s string) {
-	if len(s) == 0 {
-		re.mu.Lock()
-		re.prog = nil
-		re.curr = 0
-		re.mu.Unlock()
-		return
-	}
-	r, err := regexp.Compile(s)
-	if err != nil {
-		return
-	}
-
+func (re *Re) Finish() {
 	re.mu.Lock()
-	re.prog = r
-	re.curr = 0
-
-	if re.sleep {
-		re.sleep = false
-		re.localEb.Put(EvtFinish, false)
-	}
+	re.finalRe = true
+	re.localEb.Put(EvtFinish, false)
 	re.mu.Unlock()
 }

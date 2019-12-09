@@ -7,10 +7,11 @@ import (
 )
 
 func Run() {
+	doneChan := make(chan []*string)
 	eb := NewEventBox()
 	tui := NewTerminal(eb)
 	reader := NewReader(eb)
-	re := NewRe(eb)
+	re := NewRe(eb, doneChan)
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		// piping in data
@@ -24,6 +25,7 @@ func Run() {
 	go re.Loop()
 
 	done := false
+	early := false
 	for !done {
 		eb.Wait(func(e *Events) {
 			for eventType, v := range *e {
@@ -36,16 +38,21 @@ func Run() {
 						tui.ClearBounds()
 					}
 
+				case EvtSearchFinal:
+					re.Finish()
+					done = true
+
 				case EvtSearchProgress:
 					tui.UpdateBounds(v.([][ChunkSize][][]int))
 
 				case EvtReadNew, EvtReadDone:
 					ss := reader.Snapshot()
 					tui.UpdateChunks(ss)
-					re.UpdateDoc(ss)
+					re.UpdateDoc(ss, eventType == EvtReadDone)
 
 				case EvtQuit:
 					done = true
+					early = true
 
 				default:
 
@@ -53,5 +60,17 @@ func Run() {
 			}
 			eb.Clear()
 		})
+	}
+
+	if early {
+		tui.Close()
+	} else {
+		// print results
+		res := <-doneChan
+		tui.Close()
+
+		for _, s := range res {
+			fmt.Fprintf(os.Stdout, *s+"\n")
+		}
 	}
 }

@@ -16,22 +16,25 @@ func csi(s string) {
 	fmt.Fprintf(os.Stderr, "\x1b["+s)
 }
 
-func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i int, color string) string {
-	if bounds == nil || len(bounds) < ch+1 || len(bounds[ch][i]) == 0 {
-		// all ways the intervals might not exist
-		return doc[ch].lines[i] + "\r\n"
-	}
-
-	last := 0
-	line := doc[ch].lines[i]
+func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i, a, b int, color string) string {
 	buf := ""
 
-	for _, I := range bounds[ch][i] {
-		buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[0m"
-		last = I[1]
+	if bounds == nil || len(bounds) < ch+1 || len(bounds[ch][i]) == 0 {
+		// all ways the intervals might not exist
+		buf = doc[ch].lines[i]
+	} else {
+		last := 0
+		line := doc[ch].lines[i]
+
+		for _, I := range bounds[ch][i] {
+			buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[0m"
+			last = I[1]
+		}
+
+		buf += line[last:]
 	}
 
-	return buf + line[last:] + "\r\n"
+	return buf + "\r\n"
 }
 
 const console string = "/dev/tty"
@@ -83,8 +86,8 @@ func (t *Terminal) Loop() {
 
 		case b := <-inChan:
 			switch b {
-			case KEY_CTRLC:
-				// Ctrl-C quit
+			case KEY_CTRLC, KEY_CTRLD:
+				// Ctrl-C/D quit
 				t.Close()
 				t.mainEb.Put(EvtQuit, nil)
 				done = true
@@ -100,6 +103,10 @@ func (t *Terminal) Loop() {
 					t.posY--
 					t.Refresh()
 				}
+
+			case KEY_ENTER:
+				t.mainEb.Put(EvtSearchFinal, true)
+				done = true
 
 			case KEY_CTRLF:
 				if t.posY+t.height-1 < t.numLines {
@@ -208,7 +215,7 @@ func (t *Terminal) Refresh() {
 		chunk := t.doc[ch]
 
 		for ; i < chunk.num; i++ {
-			buf.WriteString(getLine(t.doc, t.bounds, ch, i, "\x1b[31;1m"))
+			buf.WriteString(getLine(t.doc, t.bounds, ch, i, t.posX, t.posX+t.width, "\x1b[31;1m"))
 			nrows++
 
 			if nrows > t.height-2 {
