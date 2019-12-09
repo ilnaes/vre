@@ -32,6 +32,7 @@ func NewRe(eb *EventBox, ch chan<- []*string) *Re {
 	}
 }
 
+// Loop keep applying regexp to re.doc starting at re.curr
 func (re *Re) Loop() {
 	done := false
 	for !done {
@@ -69,18 +70,11 @@ func (re *Re) Loop() {
 
 		// finished current doc and wait for signal to continue/finish
 		re.localEb.Wait(func(events *Events) {
-			// any EvtReadNew means there's more doc to consume
-			more := false
-			for e, _ := range *events {
-				more = more || (e == EvtReadNew)
-			}
-
 			re.mu.Lock()
-			// clear signals only if expecting more
-			if !re.finalDoc || !re.finalRe {
-				re.localEb.Clear()
-			}
-			done = !more && re.curr != 0
+			re.localEb.Clear()
+
+			// we are done if all things are final and we are at the end
+			done = re.finalDoc && re.finalRe && len(re.doc) == re.curr
 			re.mu.Unlock()
 		})
 	}

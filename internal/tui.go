@@ -21,17 +21,18 @@ func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i, a, b int, color s
 
 	if bounds == nil || len(bounds) < ch+1 || len(bounds[ch][i]) == 0 {
 		// all ways the intervals might not exist
-		buf = doc[ch].lines[i]
+		buf = "\x1b[38;5;244m" + doc[ch].lines[i] + "\x1b[0m"
 	} else {
 		last := 0
 		line := doc[ch].lines[i]
+		buf = "\x1b[1m\x1b[38;5;253m"
 
 		for _, I := range bounds[ch][i] {
-			buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[0m"
+			buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[38;5;253m"
 			last = I[1]
 		}
 
-		buf += line[last:]
+		buf += line[last:] + "\x1b[0m"
 	}
 
 	return buf + "\r\n"
@@ -201,10 +202,8 @@ func (t *Terminal) getch(ch chan<- int) {
 func (t *Terminal) Refresh() {
 	t.mu.Lock()
 
-	csi("2J")
-	csi("H")
-
 	var buf strings.Builder
+	buf.WriteString("\x1b[?25l\x1b[H")
 
 	nrows := 0
 	ch := t.posY / ChunkSize
@@ -215,6 +214,7 @@ func (t *Terminal) Refresh() {
 		chunk := t.doc[ch]
 
 		for ; i < chunk.num; i++ {
+			buf.WriteString("\x1b[K")
 			buf.WriteString(getLine(t.doc, t.bounds, ch, i, t.posX, t.posX+t.width, "\x1b[31;1m"))
 			nrows++
 
@@ -230,7 +230,7 @@ func (t *Terminal) Refresh() {
 	}
 
 	for j := 0; j < t.height-nrows-1; j++ {
-		buf.WriteString("\r\n")
+		buf.WriteString("\x1b[K\r\n")
 	}
 
 	// prompt
@@ -239,14 +239,16 @@ func (t *Terminal) Refresh() {
 		buf.WriteString(t.prompt + " ")
 	}
 
-	buf.WriteString(t.input + "\x1b[0m")
+	buf.WriteString(t.input)
+	buf.WriteString("\x1b[K\x1b[0m")
 	if t.offset > 0 {
 		buf.WriteString("\x1b[" + strconv.Itoa(t.offset) + "D")
 	}
 
-	t.mu.Unlock()
+	buf.WriteString("\x1b[?25h")
+	fmt.Fprint(os.Stderr, buf.String())
 
-	fmt.Fprintf(os.Stderr, buf.String())
+	t.mu.Unlock()
 }
 
 func (t *Terminal) ClearBounds() {
