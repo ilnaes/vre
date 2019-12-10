@@ -13,13 +13,13 @@ import (
 )
 
 func csi(s string) {
-	fmt.Fprintf(os.Stderr, "\x1b["+s)
+	fmt.Fprint(os.Stderr, "\x1b["+s)
 }
 
-func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i, a, b int, color string) string {
+func getLine(doc []*Chunk, res [][ChunkSize][][]int, ch, i, a, b int, color string) string {
 	buf := ""
 
-	if bounds == nil || len(bounds) < ch+1 || len(bounds[ch][i]) == 0 {
+	if res == nil || len(res) < ch+1 || len(res[ch][i]) == 0 {
 		// all ways the intervals might not exist
 		buf = "\x1b[38;5;244m" + doc[ch].lines[i] + "\x1b[0m"
 	} else {
@@ -27,7 +27,7 @@ func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i, a, b int, color s
 		line := doc[ch].lines[i]
 		buf = "\x1b[1m\x1b[38;5;253m"
 
-		for _, I := range bounds[ch][i] {
+		for _, I := range res[ch][i] {
 			buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[38;5;253m"
 			last = I[1]
 		}
@@ -39,6 +39,11 @@ func getLine(doc []*Chunk, bounds [][ChunkSize][][]int, ch, i, a, b int, color s
 }
 
 const console string = "/dev/tty"
+
+type Query struct {
+	input string
+	v     int
+}
 
 // Terminal acts as the view
 type Terminal struct {
@@ -54,11 +59,12 @@ type Terminal struct {
 	offset int // cursor offset
 
 	prompt   string
-	input    string
+	query    Query
 	misc     []string
 	doc      []*Chunk
-	bounds   [][ChunkSize][][]int
+	result   [][ChunkSize][][]int
 	numLines int
+	numRes   int
 }
 
 func NewTerminal(eb *EventBox) *Terminal {
@@ -128,36 +134,38 @@ func (t *Terminal) Loop() {
 				}
 
 			case KEY_LEFT:
-				if t.offset < len(t.input) {
+				if t.offset < len(t.query.input) {
 					t.offset++
-					t.Refresh()
+					t.RefreshPrompt()
 				}
 
 			case KEY_RIGHT:
 				if t.offset > 0 {
 					t.offset--
-					t.Refresh()
+					t.RefreshPrompt()
 				}
 
 			case KEY_DEL:
-				if len(t.input) > 0 {
-					if t.offset < len(t.input) {
-						t.input = t.input[0:len(t.input)-t.offset-1] + t.input[len(t.input)-t.offset:]
-						t.mainEb.Put(EvtSearchNew, t.input)
-						t.Refresh()
+				if len(t.query.input) > 0 {
+					t.query.v++
+					if t.offset < len(t.query.input) {
+						t.query.input = t.query.input[0:len(t.query.input)-t.offset-1] + t.query.input[len(t.query.input)-t.offset:]
+						t.mainEb.Put(EvtSearchNew, t.query)
+						t.RefreshPrompt()
 					}
 				}
 
 			default:
 				if b >= 20 && b <= 126 {
+					t.query.v++
 					// printable chars
-					if t.offset == len(t.input) {
-						t.input = string(b) + t.input
+					if t.offset == len(t.query.input) {
+						t.query.input = string(b) + t.query.input
 					} else {
-						t.input = t.input[0:len(t.input)-t.offset] + string(b) + t.input[len(t.input)-t.offset:]
+						t.query.input = t.query.input[0:len(t.query.input)-t.offset] + string(b) + t.query.input[len(t.query.input)-t.offset:]
 					}
-					t.mainEb.Put(EvtSearchNew, t.input)
-					t.Refresh()
+					t.mainEb.Put(EvtSearchNew, t.query)
+					t.RefreshPrompt()
 				}
 			}
 		}
@@ -215,7 +223,7 @@ func (t *Terminal) Refresh() {
 
 		for ; i < chunk.num; i++ {
 			buf.WriteString("\x1b[K")
-			buf.WriteString(getLine(t.doc, t.bounds, ch, i, t.posX, t.posX+t.width, "\x1b[31;1m"))
+			buf.WriteString(getLine(t.doc, t.result, ch, i, t.posX, t.posX+t.width, "\x1b[31;1m"))
 			nrows++
 
 			if nrows > t.height-2 {
@@ -232,35 +240,43 @@ func (t *Terminal) Refresh() {
 	for j := 0; j < t.height-nrows-1; j++ {
 		buf.WriteString("\x1b[K\r\n")
 	}
-
-	// prompt
-	buf.WriteString("\x1b[31;1m> \x1b[0m\x1b[37;1m")
-	if len(t.prompt) > 0 {
-		buf.WriteString(t.prompt + " ")
-	}
-
-	buf.WriteString(t.input)
-	buf.WriteString("\x1b[K\x1b[0m")
-	if t.offset > 0 {
-		buf.WriteString("\x1b[" + strconv.Itoa(t.offset) + "D")
-	}
-
 	buf.WriteString("\x1b[?25h")
 	fmt.Fprint(os.Stderr, buf.String())
 
+	t.mu.Unlock()
+
+	t.RefreshPrompt()
+}
+
+// RefreshPrompt refreshes on the command line
+func (t *Terminal) RefreshPrompt() {
+	t.mu.Lock()
+	buf := "\x1b[G\x1b[31;1m> \x1b[0m\x1b[37;1m"
+
+	if len(t.prompt) > 0 {
+		buf += t.prompt + " "
+	}
+
+	buf += t.query.input + "\x1b[K\x1b[0m"
+	if t.offset > 0 {
+		// set cursor
+		buf += "\x1b[" + strconv.Itoa(t.offset) + "D"
+	}
+
+	fmt.Fprint(os.Stderr, buf)
 	t.mu.Unlock()
 }
 
 func (t *Terminal) ClearBounds() {
 	t.mu.Lock()
-	t.bounds = nil
+	t.result = nil
 	t.mu.Unlock()
 	t.Refresh()
 }
 
 func (t *Terminal) UpdateBounds(x [][ChunkSize][][]int) {
 	t.mu.Lock()
-	t.bounds = x
+	t.result = x
 	t.mu.Unlock()
 	t.Refresh()
 }

@@ -32,9 +32,9 @@ func Run() {
 				switch eventType {
 
 				case EvtSearchNew:
-					s := v.(string)
+					s := v.(Query)
 					re.UpdateRe(s)
-					if len(s) == 0 {
+					if len(s.input) == 0 {
 						tui.ClearBounds()
 					}
 

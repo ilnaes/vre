@@ -5,6 +5,12 @@ import (
 	"sync"
 )
 
+type Result struct {
+	v       int
+	index   [][ChunkSize][][]int
+	matches []*string
+}
+
 type Re struct {
 	prog     *regexp.Regexp
 	mainEb   *EventBox
@@ -16,10 +22,10 @@ type Re struct {
 	finalDoc bool
 	finalRe  bool
 
-	doc     []*Chunk
-	bounds  [][ChunkSize][][]int
-	matches []*string
-	curr    int // current chunk processing
+	doc  []*Chunk
+	curr int // current chunk processing
+
+	res Result
 }
 
 func NewRe(eb *EventBox, ch chan<- []*string) *Re {
@@ -27,7 +33,6 @@ func NewRe(eb *EventBox, ch chan<- []*string) *Re {
 		mainEb:   eb,
 		localEb:  NewEventBox(),
 		mu:       sync.Mutex{},
-		bounds:   make([][ChunkSize][][]int, 0),
 		doneChan: ch,
 	}
 }
@@ -49,19 +54,19 @@ func (re *Re) Loop() {
 			ch := re.doc[re.curr]
 
 			// allocate new bound per chunk
-			for re.curr >= len(re.bounds) {
-				re.bounds = append(re.bounds, [ChunkSize][][]int{})
+			for re.curr >= len(re.res.index) {
+				re.res.index = append(re.res.index, [ChunkSize][][]int{})
 			}
 
 			// record regexp output
 			for i, s := range ch.lines {
-				re.bounds[re.curr][i] = re.prog.FindAllStringIndex(s, 1)
-				if len(re.bounds[re.curr][i]) > 0 {
-					re.matches = append(re.matches, &ch.lines[i])
+				re.res.index[re.curr][i] = re.prog.FindAllStringIndex(s, 1)
+				if len(re.res.index[re.curr][i]) > 0 {
+					re.res.matches = append(re.res.matches, &ch.lines[i])
 				}
 			}
 
-			re.mainEb.Put(EvtSearchProgress, re.bounds)
+			re.mainEb.Put(EvtSearchProgress, re.res.index)
 			re.curr++
 			re.mu.Unlock()
 		}
@@ -80,7 +85,7 @@ func (re *Re) Loop() {
 	}
 
 	// send results
-	re.doneChan <- re.matches
+	re.doneChan <- re.res.matches
 }
 
 func (re *Re) UpdateDoc(d []*Chunk, final bool) {
@@ -96,10 +101,10 @@ func (re *Re) UpdateDoc(d []*Chunk, final bool) {
 }
 
 // UpdateRe updates the regexp if possible
-func (re *Re) UpdateRe(s string) {
-	r, err := regexp.Compile(s)
+func (re *Re) UpdateRe(q Query) {
+	r, err := regexp.Compile(q.input)
 
-	if len(s) == 0 || err != nil {
+	if len(q.input) == 0 || err != nil {
 		// not proper regexp
 		re.mu.Lock()
 		re.prog = nil
@@ -109,13 +114,17 @@ func (re *Re) UpdateRe(s string) {
 	}
 
 	re.mu.Lock()
-	re.prog = r
-	re.curr = 0
-	re.matches = make([]*string, 0)
+	if re.res.v < q.v {
+		re.res.v++
+		re.res.index = make([][ChunkSize][][]int, 0)
 
-	if re.sleep {
-		re.sleep = false
-		re.localEb.Put(EvtFinish, false)
+		re.prog = r
+		re.curr = 0
+
+		if re.sleep {
+			re.sleep = false
+			re.localEb.Put(EvtFinish, false)
+		}
 	}
 	re.mu.Unlock()
 }
