@@ -47,7 +47,7 @@ func Run() {
 
 				case EvtReadNew, EvtReadDone:
 					ss := reader.Snapshot()
-					tui.UpdateChunks(ss)
+					tui.UpdateChunks(ss, eventType == EvtReadDone)
 					re.UpdateDoc(ss, eventType == EvtReadDone)
 
 				case EvtQuit:

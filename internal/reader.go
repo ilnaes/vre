@@ -7,7 +7,7 @@ import (
 	// "time"
 )
 
-const ChunkSize int = 100
+const ChunkSize int = 1000
 
 type Chunk struct {
 	lines [ChunkSize]string
@@ -53,6 +53,8 @@ func (r *Reader) Read(io *os.File) {
 		r.doc = append(r.doc, chunk)
 		r.mu.Unlock()
 	}
+
+	io.Close()
 
 	r.mainEb.Put(EvtReadDone, nil)
 }

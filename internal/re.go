@@ -34,6 +34,10 @@ func NewRe(eb *EventBox, ch chan<- []*string) *Re {
 		localEb:  NewEventBox(),
 		mu:       sync.Mutex{},
 		doneChan: ch,
+		res: Result{
+			index:   make([][ChunkSize][][]int, 0),
+			matches: make([]*string, 0),
+		},
 	}
 }
 
@@ -66,8 +70,10 @@ func (re *Re) Loop() {
 				}
 			}
 
-			re.mainEb.Put(EvtSearchProgress, re.Snapshot())
 			re.curr++
+			if re.curr%10 == 0 || re.curr == len(re.doc) {
+				re.mainEb.Put(EvtSearchProgress, re.Snapshot())
+			}
 			re.mu.Unlock()
 		}
 		re.sleep = true
@@ -107,6 +113,7 @@ func (re *Re) UpdateRe(q Query) {
 	if len(q.input) == 0 || err != nil {
 		// not proper regexp
 		re.mu.Lock()
+		re.res.matches = nil
 		re.prog = nil
 		re.curr = 0
 		re.mu.Unlock()
@@ -117,9 +124,7 @@ func (re *Re) UpdateRe(q Query) {
 	if re.res.v < q.v {
 		// only update if newer query
 		re.res.v++
-		re.res.index = make([][ChunkSize][][]int, 0)
 		re.res.matches = make([]*string, 0)
-
 		re.prog = r
 		re.curr = 0
 
@@ -141,8 +146,8 @@ func (re *Re) Finish() {
 // Snapshot returns a copy of the current outputs of the regexp program
 // It is called already inside a critical section
 func (re *Re) Snapshot() *Result {
-	index := make([][ChunkSize][][]int, len(re.res.index))
-	copy(index, re.res.index)
+	index := make([][ChunkSize][][]int, re.curr)
+	copy(index, re.res.index[:re.curr])
 	res := Result{
 		v:     re.res.v,
 		index: index,

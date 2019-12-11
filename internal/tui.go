@@ -79,15 +79,9 @@ func expandTabs(s string, bounds [][]int) (string, [][]int) {
 	return buf, nbounds
 }
 
-func getLine(doc []*Chunk, res *Result, ch, i, a, b int, color string) string {
-	var line string
-	var bounds [][]int
-
-	if res == nil || len(res.index) < ch+1 {
-		line, bounds = expandTabs(doc[ch].lines[i], nil)
-	} else {
-		line, bounds = expandTabs(doc[ch].lines[i], res.index[ch][i])
-	}
+// getLine will expand the tabs and color the text between intervals in bnds
+func getLine(s string, bnds [][]int, a, b int, color string) string {
+	line, bounds := expandTabs(s, bnds)
 
 	if a > len(line) {
 		return "\r\n"
@@ -289,6 +283,7 @@ func (t *Terminal) getch(ch chan<- int) {
 		_, err := syscall.Read(t.fd, b)
 		if err != nil {
 			// TODO: figure out why the fd becomes bad
+			t.prompt = "*"
 			t.openConsole()
 			_, err = syscall.Read(t.fd, b)
 			if err != nil {
@@ -340,7 +335,14 @@ func (t *Terminal) Refresh() {
 
 		for ; i < chunk.num; i++ {
 			buf.WriteString("\x1b[K")
-			buf.WriteString(getLine(t.doc, t.result, ch, i, t.posX, t.posX+t.width, "\x1b[31;1m"))
+
+			line := ""
+			if t.result == nil || len(t.result.index) < ch+1 {
+				line = getLine(t.doc[ch].lines[i], nil, t.posX, t.posX+t.width, "\x1b[31;1m")
+			} else {
+				line = getLine(t.doc[ch].lines[i], t.result.index[ch][i], t.posX, t.posX+t.width, "\x1b[31;1m")
+			}
+			buf.WriteString(line)
 			nrows++
 
 			if nrows > t.height-2 {
@@ -421,17 +423,23 @@ func (t *Terminal) UpdatePrompt(s string) {
 }
 
 // UpdateChunks saves input snapshot
-func (t *Terminal) UpdateChunks(d []*Chunk) {
+func (t *Terminal) UpdateChunks(d []*Chunk, final bool) {
 	t.mu.Lock()
 
+	refresh := t.doc == nil || (len(t.doc) < (t.posX+t.height)/ChunkSize && len(d) >= (t.posX+t.height)/ChunkSize)
+
 	t.doc = d
+
 	t.numLines = 0
 	for _, c := range t.doc {
 		t.numLines += c.num
 	}
 
 	t.mu.Unlock()
-	t.Refresh()
+
+	if refresh {
+		t.Refresh()
+	}
 }
 
 // GetSize updates the size of the terminal
@@ -455,7 +463,6 @@ func (t *Terminal) Init() {
 	}
 
 	t.origState = origState
-	t.GetSize()
 	terminal.MakeRaw(t.fd)
 	t.GetSize()
 
@@ -465,7 +472,11 @@ func (t *Terminal) Init() {
 // Close closes alternate screen buffer and restores original terminal state
 func (t *Terminal) Close() {
 	fmt.Fprint(os.Stderr, "\x1b[?1049l")
-	terminal.Restore(t.fd, t.origState)
+	err := terminal.Restore(t.fd, t.origState)
+	if err != nil {
+		t.openConsole()
+		terminal.Restore(t.fd, t.origState)
+	}
 }
 
 func (t *Terminal) openConsole() {
