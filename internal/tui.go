@@ -65,6 +65,16 @@ func expandTabs(doc []*Chunk, res *Result, ch, i int) (string, [][]int) {
 		}
 	}
 
+	if curr != -1 {
+		for ; curr < 2*len(res.index[ch][i]) && res.index[ch][i][curr/2][curr%2] <= len(s); curr++ {
+			if curr%2 == 0 {
+				bounds[curr/2] = []int{res.index[ch][i][curr/2][0] + pad, 0}
+			} else {
+				bounds[curr/2][1] = res.index[ch][i][curr/2][1] + pad
+			}
+		}
+	}
+
 	buf += s[last:]
 
 	return buf, bounds
@@ -237,8 +247,8 @@ func (t *Terminal) Loop() {
 
 			case KEY_DEL:
 				if len(t.query.input) > 0 {
-					t.query.v++
 					if t.offset < len(t.query.input) {
+						t.query.v++
 						t.query.input = t.query.input[0:len(t.query.input)-t.offset-1] + t.query.input[len(t.query.input)-t.offset:]
 						t.mainEb.Put(EvtSearchNew, t.query)
 						t.RefreshPrompt()
@@ -267,7 +277,15 @@ func (t *Terminal) getch(ch chan<- int) {
 
 	done := false
 	for !done {
-		syscall.Read(t.fd, b)
+		_, err := syscall.Read(t.fd, b)
+		if err != nil {
+			// TODO: figure out why the fd becomes bad
+			t.openConsole()
+			_, err = syscall.Read(t.fd, b)
+			if err != nil {
+				panic(err)
+			}
+		}
 
 		if b[0] == KEY_ESC {
 			// escaped
@@ -405,11 +423,7 @@ func (t *Terminal) GetSize() {
 
 // Init saves current state of terminal, sets up raw mode and alternate screen buffer
 func (t *Terminal) Init() {
-	tty, err := os.OpenFile(console, syscall.O_RDONLY, 0)
-	if err != nil {
-		log.Fatal("Could not open file")
-	}
-	t.fd = int(tty.Fd())
+	t.openConsole()
 
 	origState, err := terminal.GetState(t.fd)
 	if err != nil {
@@ -428,4 +442,12 @@ func (t *Terminal) Init() {
 func (t *Terminal) Close() {
 	fmt.Fprint(os.Stderr, "\x1b[?1049l")
 	terminal.Restore(t.fd, t.origState)
+}
+
+func (t *Terminal) openConsole() {
+	tty, err := os.OpenFile(console, syscall.O_RDONLY, 0)
+	if err != nil {
+		panic(err)
+	}
+	t.fd = int(tty.Fd())
 }

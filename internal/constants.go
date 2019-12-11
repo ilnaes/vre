@@ -11,7 +11,7 @@ const (
 	EvtSearchFinal
 	EvtSearchProgress
 	EvtSearchCancel
-
+	EvtHeartbeat
 	EvtFinish
 )
 
