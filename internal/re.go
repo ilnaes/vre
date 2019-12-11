@@ -118,6 +118,7 @@ func (re *Re) UpdateRe(q Query) {
 		// only update if newer query
 		re.res.v++
 		re.res.index = make([][ChunkSize][][]int, 0)
+		re.res.matches = make([]*string, 0)
 
 		re.prog = r
 		re.curr = 0

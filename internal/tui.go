@@ -13,8 +13,7 @@ import (
 )
 
 // expandTabs expands all tabs up to TABSTOP spaces and modifies boundaries to accomodate
-func expandTabs(doc []*Chunk, res *Result, ch, i int) (string, [][]int) {
-	s := doc[ch].lines[i]
+func expandTabs(s string, bounds [][]int) (string, [][]int) {
 	if len(s) == 0 {
 		return s, make([][]int, 0)
 	}
@@ -24,16 +23,16 @@ func expandTabs(doc []*Chunk, res *Result, ch, i int) (string, [][]int) {
 	pad := 0   // extra spaces from tabs
 	curr := -1 // current boundary point
 
-	var bounds [][]int
-	if res == nil || len(res.index) < ch+1 || len(res.index[ch][i]) == 0 {
-		bounds = nil
+	var nbounds [][]int
+	if bounds == nil || len(bounds) == 0 {
+		nbounds = nil
 	} else {
-		bounds = make([][]int, len(res.index[ch][i]))
+		nbounds = make([][]int, len(bounds))
 
 		// mark first number of an interval greater than 0
-		if res.index[ch][i][0][0] == 0 {
+		if bounds[0][0] == 0 {
 			curr = 1
-			bounds[0] = []int{0, 0}
+			nbounds[0] = []int{0, 0}
 		} else {
 			curr = 0
 		}
@@ -55,33 +54,41 @@ func expandTabs(doc []*Chunk, res *Result, ch, i int) (string, [][]int) {
 
 		// update bounds if any passed
 		if curr != -1 {
-			for ; curr < 2*len(res.index[ch][i]) && res.index[ch][i][curr/2][curr%2] <= j; curr++ {
+			for ; curr < 2*len(bounds) && bounds[curr/2][curr%2] <= j; curr++ {
 				if curr%2 == 0 {
-					bounds[curr/2] = []int{res.index[ch][i][curr/2][0] + pad, 0}
+					nbounds[curr/2] = []int{bounds[curr/2][0] + pad, 0}
 				} else {
-					bounds[curr/2][1] = res.index[ch][i][curr/2][1] + pad
+					nbounds[curr/2][1] = bounds[curr/2][1] + pad
 				}
 			}
 		}
 	}
 
 	if curr != -1 {
-		for ; curr < 2*len(res.index[ch][i]) && res.index[ch][i][curr/2][curr%2] <= len(s); curr++ {
+		for ; curr < 2*len(bounds) && bounds[curr/2][curr%2] <= len(s); curr++ {
 			if curr%2 == 0 {
-				bounds[curr/2] = []int{res.index[ch][i][curr/2][0] + pad, 0}
+				nbounds[curr/2] = []int{bounds[curr/2][0] + pad, 0}
 			} else {
-				bounds[curr/2][1] = res.index[ch][i][curr/2][1] + pad
+				nbounds[curr/2][1] = bounds[curr/2][1] + pad
 			}
 		}
 	}
 
 	buf += s[last:]
 
-	return buf, bounds
+	return buf, nbounds
 }
 
 func getLine(doc []*Chunk, res *Result, ch, i, a, b int, color string) string {
-	line, bounds := expandTabs(doc, res, ch, i)
+	var line string
+	var bounds [][]int
+
+	if res == nil || len(res.index) < ch+1 {
+		line, bounds = expandTabs(doc[ch].lines[i], nil)
+	} else {
+		line, bounds = expandTabs(doc[ch].lines[i], res.index[ch][i])
+	}
+
 	if a > len(line) {
 		return "\r\n"
 	}
@@ -148,13 +155,15 @@ type Terminal struct {
 	posX   int
 	offset int // cursor offset
 
-	prompt   string
-	query    Query
-	misc     []string
+	prompt string
+	query  Query
+
 	doc      []*Chunk
-	result   *Result
 	numLines int
-	numRes   int
+
+	result    *Result
+	numRes    int
+	displayed bool
 }
 
 func NewTerminal(eb *EventBox) *Terminal {
@@ -384,9 +393,24 @@ func (t *Terminal) ClearBounds() {
 
 func (t *Terminal) UpdateBounds(x *Result) {
 	t.mu.Lock()
+
+	if t.result == nil || x.v > t.result.v {
+		t.displayed = false
+	}
 	t.result = x
+
+	refresh := false
+
+	// refresh the display if got a new version of result and got enough chunks
+	if (len(t.result.index) == len(t.doc) || len(t.result.index) > (t.posY+t.height)/ChunkSize) && !t.displayed {
+		t.displayed = true
+		refresh = true
+	}
+
 	t.mu.Unlock()
-	t.Refresh()
+	if refresh {
+		t.Refresh()
+	}
 }
 
 func (t *Terminal) UpdatePrompt(s string) {
