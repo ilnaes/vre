@@ -9,7 +9,7 @@ For example, to get the first five matches from `infile`, use the command
 
 Inspired by Junegunn's [fzf](https://github.com/junegunn/fzf)
 
-# Usage
+## Usage
 
 To navigate:
 
@@ -18,3 +18,11 @@ To navigate:
 * `<Ctrl-f>` Page down
 * `<Ctrl-b>` Page up
 * `<Ctrl-c/d>` Cancel without outputting
+
+## Todo 📝 
+
+- [] Match toggling
+- [] File inputs
+- [] Submatch highlighting
+- [] sed-like search/replace
+
