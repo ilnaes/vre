@@ -13,13 +13,13 @@ import (
 )
 
 // expandTabs expands all tabs up to TABSTOP spaces and modifies boundaries to accomodate
-func expandTabs(s string, bounds [][]int) (string, [][]int) {
+func expandTabs(s []byte, bounds [][]int) (string, [][]int) {
 	if len(s) == 0 {
-		return s, make([][]int, 0)
+		return "", make([][]int, 0)
 	}
 
 	last := 0
-	buf := ""
+	var buf strings.Builder
 	pad := 0   // extra spaces from tabs
 	curr := -1 // current boundary point
 
@@ -40,11 +40,11 @@ func expandTabs(s string, bounds [][]int) (string, [][]int) {
 
 	for j, c := range s {
 		if c == '\t' {
-			buf += s[last:j]
+			buf.Write(s[last:j])
 
-			n := TABSTOP - len(buf)%TABSTOP
+			n := TABSTOP - buf.Len()%TABSTOP
 			for k := 0; k < n; k++ {
-				buf += " "
+				buf.WriteRune(' ')
 			}
 
 			pad += n - 1
@@ -74,13 +74,13 @@ func expandTabs(s string, bounds [][]int) (string, [][]int) {
 		}
 	}
 
-	buf += s[last:]
+	buf.Write(s[last:])
 
-	return buf, nbounds
+	return buf.String(), nbounds
 }
 
 // getLine will expand the tabs and color the text between intervals in bnds
-func getLine(s string, bnds [][]int, a, b int, color string) string {
+func getLine(s []byte, bnds [][]int, a, b int, color string) string {
 	line, bounds := expandTabs(s, bnds)
 
 	if a > len(line) {
@@ -275,6 +275,8 @@ func (t *Terminal) Loop() {
 	}
 }
 
+var i int = 1
+
 func (t *Terminal) getch(ch chan<- int) {
 	b := make([]byte, 1)
 
@@ -283,7 +285,8 @@ func (t *Terminal) getch(ch chan<- int) {
 		_, err := syscall.Read(t.fd, b)
 		if err != nil {
 			// TODO: figure out why the fd becomes bad
-			t.prompt = "*"
+			// t.prompt = fmt.Sprintf("%d *", i)
+			i++
 			t.openConsole()
 			_, err = syscall.Read(t.fd, b)
 			if err != nil {
@@ -338,9 +341,9 @@ func (t *Terminal) Refresh() {
 
 			line := ""
 			if t.result == nil || len(t.result.index) < ch+1 {
-				line = getLine(t.doc[ch].lines[i], nil, t.posX, t.posX+t.width, "\x1b[31;1m")
+				line = getLine(*t.doc[ch].lines[i], nil, t.posX, t.posX+t.width, "\x1b[31;1m")
 			} else {
-				line = getLine(t.doc[ch].lines[i], t.result.index[ch][i], t.posX, t.posX+t.width, "\x1b[31;1m")
+				line = getLine(*t.doc[ch].lines[i], t.result.index[ch][i], t.posX, t.posX+t.width, "\x1b[31;1m")
 			}
 			buf.WriteString(line)
 			nrows++

@@ -10,7 +10,7 @@ import (
 const ChunkSize int = 1000
 
 type Chunk struct {
-	lines [ChunkSize]string
+	lines [ChunkSize]*[]byte
 	num   int
 }
 
@@ -31,20 +31,27 @@ func NewReader(eb *EventBox) *Reader {
 
 // Read reads the file in ChunkSize chunks and appends to Reader
 func (r *Reader) Read(io *os.File) {
-	scanner := bufio.NewScanner(io)
+	reader := bufio.NewReaderSize(io, 64*1024)
 	chunk := &Chunk{}
 
-	for scanner.Scan() {
-		chunk.lines[chunk.num] = scanner.Text()
-		chunk.num++
+	for {
+		buf, err := reader.ReadBytes('\n')
+		if len(buf) > 0 && err == nil {
+			line := buf[:len(buf)-1]
+			chunk.lines[chunk.num] = &line
+			chunk.num++
 
-		if chunk.num == ChunkSize {
-			r.mu.Lock()
-			r.doc = append(r.doc, chunk)
-			r.mu.Unlock()
+			if chunk.num == ChunkSize {
+				r.mu.Lock()
+				r.doc = append(r.doc, chunk)
+				r.mu.Unlock()
 
-			chunk = &Chunk{}
-			r.mainEb.Put(EvtReadNew, nil)
+				chunk = &Chunk{}
+				r.mainEb.Put(EvtReadNew, nil)
+			}
+		}
+		if err != nil {
+			break
 		}
 	}
 

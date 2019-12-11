@@ -8,14 +8,14 @@ import (
 type Result struct {
 	v       int
 	index   [][ChunkSize][][]int
-	matches []*string
+	matches []*[]byte
 }
 
 type Re struct {
 	prog     *regexp.Regexp
 	mainEb   *EventBox
 	localEb  *EventBox
-	doneChan chan<- []*string
+	doneChan chan<- []*[]byte
 	mu       sync.Mutex
 
 	sleep    bool
@@ -28,7 +28,7 @@ type Re struct {
 	res Result
 }
 
-func NewRe(eb *EventBox, ch chan<- []*string) *Re {
+func NewRe(eb *EventBox, ch chan<- []*[]byte) *Re {
 	return &Re{
 		mainEb:   eb,
 		localEb:  NewEventBox(),
@@ -36,7 +36,7 @@ func NewRe(eb *EventBox, ch chan<- []*string) *Re {
 		doneChan: ch,
 		res: Result{
 			index:   make([][ChunkSize][][]int, 0),
-			matches: make([]*string, 0),
+			matches: make([]*[]byte, 0),
 		},
 	}
 }
@@ -64,9 +64,11 @@ func (re *Re) Loop() {
 
 			// record regexp output
 			for i, s := range ch.lines {
-				re.res.index[re.curr][i] = re.prog.FindAllStringIndex(s, 1)
-				if len(re.res.index[re.curr][i]) > 0 {
-					re.res.matches = append(re.res.matches, &ch.lines[i])
+				if s != nil {
+					re.res.index[re.curr][i] = re.prog.FindAllIndex(*s, 1)
+					if len(re.res.index[re.curr][i]) > 0 {
+						re.res.matches = append(re.res.matches, ch.lines[i])
+					}
 				}
 			}
 
@@ -124,7 +126,7 @@ func (re *Re) UpdateRe(q Query) {
 	if re.res.v < q.v {
 		// only update if newer query
 		re.res.v++
-		re.res.matches = make([]*string, 0)
+		re.res.matches = make([]*[]byte, 0)
 		re.prog = r
 		re.curr = 0
 

@@ -7,7 +7,7 @@ import (
 )
 
 func Run() {
-	doneChan := make(chan []*string)
+	doneChan := make(chan []*[]byte)
 	eb := NewEventBox()
 	tui := NewTerminal(eb)
 	reader := NewReader(eb)
@@ -73,7 +73,8 @@ func Run() {
 		tui.Close()
 
 		for _, s := range res {
-			fmt.Fprintf(os.Stdout, *s+"\n")
+			os.Stdout.Write(*s)
+			os.Stdout.WriteString("\n")
 		}
 	}
 }

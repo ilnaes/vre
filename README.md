@@ -8,3 +8,13 @@ For example, to get the first five matches from `infile`, use the command
 ```
 
 Inspired by Junegunn's [fzf](https://github.com/junegunn/fzf)
+
+# Usage
+
+To navigate:
+
+* `<Ctrl-j>` Down
+* `<Ctrl-k>` Up
+* `<Ctrl-f>` Page down
+* `<Ctrl-b>` Page up
+* `<Ctrl-c/d>` Cancel without outputting
