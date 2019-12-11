@@ -21,8 +21,8 @@ To navigate:
 
 ## Todo 📝 
 
-- [] Match toggling
-- [] File inputs
-- [] Submatch highlighting
-- [] sed-like search/replace
+- [ ] Match toggling
+- [ ] File inputs
+- [ ] Submatch highlighting
+- [ ] sed-like search/replace
 
