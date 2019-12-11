@@ -1,5 +1,8 @@
 package vre
 
+// number of spaces in a tab
+var TABSTOP int = 8
+
 const (
 	EvtReadNew EventType = iota
 	EvtReadDone

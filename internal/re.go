@@ -66,7 +66,7 @@ func (re *Re) Loop() {
 				}
 			}
 
-			re.mainEb.Put(EvtSearchProgress, re.res.index)
+			re.mainEb.Put(EvtSearchProgress, re.Snapshot())
 			re.curr++
 			re.mu.Unlock()
 		}
@@ -115,6 +115,7 @@ func (re *Re) UpdateRe(q Query) {
 
 	re.mu.Lock()
 	if re.res.v < q.v {
+		// only update if newer query
 		re.res.v++
 		re.res.index = make([][ChunkSize][][]int, 0)
 
@@ -134,4 +135,17 @@ func (re *Re) Finish() {
 	re.finalRe = true
 	re.localEb.Put(EvtFinish, false)
 	re.mu.Unlock()
+}
+
+// Snapshot returns a copy of the current outputs of the regexp program
+// It is called already inside a critical section
+func (re *Re) Snapshot() *Result {
+	index := make([][ChunkSize][][]int, len(re.res.index))
+	copy(index, re.res.index)
+	res := Result{
+		v:     re.res.v,
+		index: index,
+	}
+
+	return &res
 }

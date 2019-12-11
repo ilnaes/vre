@@ -59,7 +59,7 @@ func (r *Reader) Read(io *os.File) {
 	r.mainEb.Put(EvtReadDone, nil)
 }
 
-// Snapshot returns the current items in the document
+// Snapshot returns a copy of the current items in the document
 func (r *Reader) Snapshot() []*Chunk {
 	r.mu.Lock()
 	res := make([]*Chunk, len(r.doc))

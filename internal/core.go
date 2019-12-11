@@ -43,7 +43,7 @@ func Run() {
 					done = true
 
 				case EvtSearchProgress:
-					tui.UpdateBounds(v.([][ChunkSize][][]int))
+					tui.UpdateBounds(v.(*Result))
 
 				case EvtReadNew, EvtReadDone:
 					ss := reader.Snapshot()

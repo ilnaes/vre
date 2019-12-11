@@ -12,27 +12,107 @@ import (
 	"syscall"
 )
 
-func csi(s string) {
-	fmt.Fprint(os.Stderr, "\x1b["+s)
-}
+// expandTabs expands all tabs up to TABSTOP spaces and modifies boundaries to accomodate
+func expandTabs(doc []*Chunk, res *Result, ch, i int) (string, [][]int) {
+	s := doc[ch].lines[i]
+	if len(s) == 0 {
+		return s, make([][]int, 0)
+	}
 
-func getLine(doc []*Chunk, res [][ChunkSize][][]int, ch, i, a, b int, color string) string {
+	last := 0
 	buf := ""
+	pad := 0   // extra spaces from tabs
+	curr := -1 // current boundary point
 
-	if res == nil || len(res) < ch+1 || len(res[ch][i]) == 0 {
-		// all ways the intervals might not exist
-		buf = "\x1b[38;5;244m" + doc[ch].lines[i] + "\x1b[0m"
+	var bounds [][]int
+	if res == nil || len(res.index) < ch+1 || len(res.index[ch][i]) == 0 {
+		bounds = nil
 	} else {
-		last := 0
-		line := doc[ch].lines[i]
-		buf = "\x1b[1m\x1b[38;5;253m"
+		bounds = make([][]int, len(res.index[ch][i]))
 
-		for _, I := range res[ch][i] {
-			buf += line[last:I[0]] + color + line[I[0]:I[1]] + "\x1b[38;5;253m"
-			last = I[1]
+		// mark first number of an interval greater than 0
+		if res.index[ch][i][0][0] == 0 {
+			curr = 1
+			bounds[0] = []int{0, 0}
+		} else {
+			curr = 0
+		}
+	}
+
+	for j, c := range s {
+		if c == '\t' {
+			buf += s[last:j]
+
+			n := TABSTOP - len(buf)%TABSTOP
+			for k := 0; k < n; k++ {
+				buf += " "
+			}
+
+			pad += n - 1
+
+			last = j + 1
 		}
 
-		buf += line[last:] + "\x1b[0m"
+		// update bounds if any passed
+		if curr != -1 {
+			for ; curr < 2*len(res.index[ch][i]) && res.index[ch][i][curr/2][curr%2] <= j; curr++ {
+				if curr%2 == 0 {
+					bounds[curr/2] = []int{res.index[ch][i][curr/2][0] + pad, 0}
+				} else {
+					bounds[curr/2][1] = res.index[ch][i][curr/2][1] + pad
+				}
+			}
+		}
+	}
+
+	buf += s[last:]
+
+	return buf, bounds
+}
+
+func getLine(doc []*Chunk, res *Result, ch, i, a, b int, color string) string {
+	line, bounds := expandTabs(doc, res, ch, i)
+	if a > len(line) {
+		return "\r\n"
+	}
+	if b > len(line) {
+		b = len(line)
+	}
+
+	buf := ""
+	if bounds == nil || len(bounds) == 0 {
+		// all ways the intervals might not exist
+		buf = "\x1b[38;5;244m" + line[a:b] + "\x1b[0m"
+	} else {
+		last := a
+		buf = "\x1b[1m\x1b[38;5;253m"
+
+		for _, I := range bounds {
+			if I[1] <= last {
+				// I is before [a,b]
+				continue
+			}
+
+			if I[0] < a {
+				I[0] = a
+			}
+			if I[0] > b {
+				I[0] = b
+			}
+			if I[1] > b {
+				I[1] = b
+			}
+
+			buf += line[last:I[0]] + color
+			buf += line[I[0]:I[1]] + "\x1b[38;5;253m"
+			last = I[1]
+
+			if last == b {
+				break
+			}
+		}
+
+		buf += line[last:b] + "\x1b[0m"
 	}
 
 	return buf + "\r\n"
@@ -62,7 +142,7 @@ type Terminal struct {
 	query    Query
 	misc     []string
 	doc      []*Chunk
-	result   [][ChunkSize][][]int
+	result   *Result
 	numLines int
 	numRes   int
 }
@@ -99,21 +179,31 @@ func (t *Terminal) Loop() {
 				t.mainEb.Put(EvtQuit, nil)
 				done = true
 
+			case KEY_ENTER:
+				t.mainEb.Put(EvtSearchFinal, true)
+				done = true
+
 			case KEY_CTRLJ:
 				if t.posY+t.height-1 < t.numLines {
 					t.posY++
 					t.Refresh()
 				}
 
+			case KEY_CTRLH:
+				if t.posX > 0 {
+					t.posX--
+					t.Refresh()
+				}
+
+			case KEY_CTRLL:
+				t.posX++
+				t.Refresh()
+
 			case KEY_CTRLK:
 				if t.posY > 0 {
 					t.posY--
 					t.Refresh()
 				}
-
-			case KEY_ENTER:
-				t.mainEb.Put(EvtSearchFinal, true)
-				done = true
 
 			case KEY_CTRLF:
 				if t.posY+t.height-1 < t.numLines {
@@ -206,7 +296,7 @@ func (t *Terminal) getch(ch chan<- int) {
 	}
 }
 
-// Refresh clears screen and prints contents
+// Refresh prints contents
 func (t *Terminal) Refresh() {
 	t.mu.Lock()
 
@@ -248,7 +338,7 @@ func (t *Terminal) Refresh() {
 	t.RefreshPrompt()
 }
 
-// RefreshPrompt refreshes on the command line
+// RefreshPrompt refreshes just the prompt line
 func (t *Terminal) RefreshPrompt() {
 	t.mu.Lock()
 	buf := "\x1b[G\x1b[31;1m> \x1b[0m\x1b[37;1m"
@@ -274,7 +364,7 @@ func (t *Terminal) ClearBounds() {
 	t.Refresh()
 }
 
-func (t *Terminal) UpdateBounds(x [][ChunkSize][][]int) {
+func (t *Terminal) UpdateBounds(x *Result) {
 	t.mu.Lock()
 	t.result = x
 	t.mu.Unlock()
@@ -302,10 +392,11 @@ func (t *Terminal) UpdateChunks(d []*Chunk) {
 	t.Refresh()
 }
 
-// GetSize gets the size of the terminal
+// GetSize updates the size of the terminal
 func (t *Terminal) GetSize() {
 	w, h, err := terminal.GetSize(t.fd)
 	if err != nil {
+		t.Close()
 		log.Fatal("Could not get terminal size")
 	}
 	t.width = w
@@ -330,11 +421,11 @@ func (t *Terminal) Init() {
 	terminal.MakeRaw(t.fd)
 	t.GetSize()
 
-	csi("?1049h")
+	fmt.Fprint(os.Stderr, "\x1b[?1049h")
 }
 
 // Close closes alternate screen buffer and restores original terminal state
 func (t *Terminal) Close() {
-	csi("?1049l")
+	fmt.Fprint(os.Stderr, "\x1b[?1049l")
 	terminal.Restore(t.fd, t.origState)
 }
