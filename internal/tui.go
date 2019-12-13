@@ -348,13 +348,13 @@ func (t *Terminal) Refresh() {
 			buf.WriteString(line)
 			nrows++
 
-			if nrows > t.height-2 {
+			if nrows > t.height-3 {
 				break
 			}
 		}
 		i = 0
 
-		if nrows > t.height-2 {
+		if nrows > t.height-3 {
 			break
 		}
 	}
@@ -373,7 +373,19 @@ func (t *Terminal) Refresh() {
 // RefreshPrompt refreshes just the prompt line
 func (t *Terminal) RefreshPrompt() {
 	t.mu.Lock()
-	buf := "\x1b[G\x1b[31;1m> \x1b[0m\x1b[37;1m"
+	buf := "\x1b[G\x1b[F"
+
+	if t.doc == nil {
+		buf += "\r\n"
+	} else {
+		matchCount := t.numLines
+		if t.result != nil && t.result.matches != nil {
+			matchCount = len(t.result.matches)
+		}
+		buf += fmt.Sprintf("\x1b[37;1m%d\x1b[31;1m/\x1b[37;1m%d\x1b[0m\r\n", matchCount, t.numLines)
+	}
+
+	buf += "\x1b[31;1m> \x1b[0m\x1b[37;1m"
 
 	if len(t.prompt) > 0 {
 		buf += t.prompt + " "
@@ -416,6 +428,7 @@ func (t *Terminal) UpdateBounds(x *Result) {
 	if refresh {
 		t.Refresh()
 	}
+	t.RefreshPrompt()
 }
 
 func (t *Terminal) UpdatePrompt(s string) {
@@ -442,6 +455,8 @@ func (t *Terminal) UpdateChunks(d []*Chunk, final bool) {
 
 	if refresh {
 		t.Refresh()
+	} else {
+		t.RefreshPrompt()
 	}
 }
 

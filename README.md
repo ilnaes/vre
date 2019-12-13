@@ -1,13 +1,13 @@
 # vre
 
-vre is a grep-like tool that will visually highlight your regular expression matches.  Input for vre has to be piped in (for now) and matches will be printed out.
+vre is a grep-like tool with a terminal UI that will visually highlight your regular expression matches _as you type_.  There is nothing tricky behind the scenes.  vre is literally using Go's `regexp` package to do the matching.
 
-For example, to get the first five matches from `infile`, use the command
+For now, input for vre has to be piped in and matches will be printed out.  For example, to get the first five matches from `infile`, use the command
 ```sh
-./vre < infile | head -n 5
+vre < infile | head -n 5
 ```
 
-Inspired by Junegunn's [fzf](https://github.com/junegunn/fzf)
+Inspired by Junegunn's [fzf](https://github.com/junegunn/fzf).
 
 ## Usage
 
@@ -17,12 +17,15 @@ To navigate:
 * `<Ctrl-k>` Up
 * `<Ctrl-f>` Page down
 * `<Ctrl-b>` Page up
-* `<Ctrl-c/d>` Cancel without outputting
+* `<Enter>` Quit and output matches
+* `<Ctrl-c>`/`<Ctrl-d>` Quit without outputting
 
 ## Todo 📝 
 
-- [ ] Match toggling
+- [x] Line count
 - [ ] File inputs
+- [ ] Toggle displaying unmatched lines
+- [ ] Command line options like tabstop length, etc.
 - [ ] Submatch highlighting
 - [ ] sed-like search/replace
 

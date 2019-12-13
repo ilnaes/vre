@@ -101,6 +101,7 @@ func (re *Re) UpdateDoc(d []*Chunk, final bool) {
 	re.doc = d
 	re.finalDoc = re.finalDoc || final
 
+	// wake up if asleep
 	if re.sleep {
 		re.sleep = false
 		re.localEb.Put(EvtReadNew, false)
@@ -149,10 +150,14 @@ func (re *Re) Finish() {
 // It is called already inside a critical section
 func (re *Re) Snapshot() *Result {
 	index := make([][ChunkSize][][]int, re.curr)
+	matches := make([]*[]byte, len(re.res.matches))
 	copy(index, re.res.index[:re.curr])
+	copy(matches, re.res.matches)
+
 	res := Result{
-		v:     re.res.v,
-		index: index,
+		v:       re.res.v,
+		index:   index,
+		matches: matches,
 	}
 
 	return &res
