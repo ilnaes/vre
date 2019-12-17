@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"os"
 	"sync"
-	// "time"
 )
 
 const ChunkSize int = 1000
+
+type Doc struct {
+	chunks   []*Chunk
+	filename string
+}
 
 type Chunk struct {
 	lines [ChunkSize]*[]byte
@@ -29,8 +33,20 @@ func NewReader(eb *EventBox) *Reader {
 	}
 }
 
-// Read reads the file in ChunkSize chunks and appends to Reader
-func (r *Reader) Read(io *os.File) {
+// ReadFiles reads the files given
+func (r *Reader) ReadFiles(fs []string) {
+	for _, fname := range fs {
+		f, err := os.Open(fname)
+		if err != nil {
+			r.mainEb.Put(EvtReadError, fname)
+		}
+
+		r.ReadFile(f)
+	}
+}
+
+// ReadStream reads the file in ChunkSize chunks and appends to Reader
+func (r *Reader) ReadFile(io *os.File) {
 	reader := bufio.NewReaderSize(io, 64*1024)
 	chunk := &Chunk{}
 

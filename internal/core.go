@@ -15,9 +15,10 @@ func Run() {
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		// piping in data
-		go reader.Read(os.Stdin)
+		go reader.ReadFile(os.Stdin)
 	} else {
-		fmt.Fprintf(os.Stdout, "%d\n", len(os.Args))
+		// read in files
+		go reader.ReadFiles(os.Args[1:])
 	}
 
 	tui.Init()
@@ -26,6 +27,7 @@ func Run() {
 
 	done := false
 	early := false
+	readError := ""
 	for !done {
 		eb.Wait(func(e *Events) {
 			for eventType, v := range *e {
@@ -50,6 +52,11 @@ func Run() {
 					tui.UpdateChunks(ss, eventType == EvtReadDone)
 					re.UpdateDoc(ss, eventType == EvtReadDone)
 
+				case EvtReadError:
+					done = true
+					early = true
+					readError = v.(string)
+
 				case EvtQuit:
 					done = true
 					early = true
@@ -67,6 +74,10 @@ func Run() {
 
 	if early {
 		tui.Close()
+
+		if readError != "" {
+			fmt.Println("Problem reading " + readError)
+		}
 	} else {
 		// print results
 		res := <-doneChan

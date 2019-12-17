@@ -6,6 +6,7 @@ var TABSTOP int = 8
 const (
 	EvtReadNew EventType = iota
 	EvtReadDone
+	EvtReadError
 	EvtQuit
 	EvtSearchNew
 	EvtSearchFinal
