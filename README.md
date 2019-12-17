@@ -8,7 +8,7 @@ Inspired by Junegunn's [fzf](https://github.com/junegunn/fzf).
 
 ## Usage
 
-One can either pipe in the data to be matched or feed in the files via command line arguments. For example, to run vre on all go files in the `internal` director, use the command
+One can either pipe in the data to be matched or feed in the files via command line arguments. For example, to run vre on all go files in the `internal` directory, use the command
 
 ```sh
 vre internal/*.go
@@ -22,12 +22,12 @@ ls | vre | head -n 5
 
 To navigate:
 
-- `<Ctrl-j>` Down
-- `<Ctrl-k>` Up
-- `<Ctrl-f>` Page down
-- `<Ctrl-b>` Page up
-- `<Enter>` Quit and output matches
-- `<Ctrl-c>`/`<Ctrl-d>` Quit without outputting
+- `CTRL-J` Down
+- `CTRL-K` Up
+- `CTRL-F` Page down
+- `CTRL-B` Page up
+- `ENTER` Quit and output matches
+- `CTRL-C`/`CTRL-D` Quit without outputting
 
 ## Todo 📝
 
