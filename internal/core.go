@@ -14,8 +14,8 @@ func Run() {
 	re := NewRe(eb, doneChan)
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
-		// piping in data
-		go reader.ReadFile(os.Stdin)
+		// pipe in data
+		go reader.ReadFile(os.Stdin, "", true)
 	} else {
 		// read in files
 		go reader.ReadFiles(os.Args[1:])

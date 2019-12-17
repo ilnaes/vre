@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-const ChunkSize int = 1000
+const ChunkSize int = 250
 
 type Doc struct {
 	chunks   []*Chunk
@@ -22,31 +22,37 @@ type Chunk struct {
 type Reader struct {
 	mu     sync.Mutex
 	mainEb *EventBox
-	doc    []*Chunk
+	doc    []*Doc
 }
 
 func NewReader(eb *EventBox) *Reader {
 	return &Reader{
 		mainEb: eb,
 		mu:     sync.Mutex{},
-		doc:    make([]*Chunk, 0),
+		doc:    make([]*Doc, 0),
 	}
 }
 
 // ReadFiles reads the files given
 func (r *Reader) ReadFiles(fs []string) {
-	for _, fname := range fs {
+	for i, fname := range fs {
 		f, err := os.Open(fname)
 		if err != nil {
 			r.mainEb.Put(EvtReadError, fname)
 		}
 
-		r.ReadFile(f)
+		r.ReadFile(f, fname, i == len(fs)-1)
 	}
 }
 
 // ReadStream reads the file in ChunkSize chunks and appends to Reader
-func (r *Reader) ReadFile(io *os.File) {
+func (r *Reader) ReadFile(io *os.File, name string, final bool) {
+	doc := Doc{
+		chunks:   make([]*Chunk, 0),
+		filename: name,
+	}
+	r.doc = append(r.doc, &doc)
+
 	reader := bufio.NewReaderSize(io, 64*1024)
 	chunk := &Chunk{}
 
@@ -59,7 +65,7 @@ func (r *Reader) ReadFile(io *os.File) {
 
 			if chunk.num == ChunkSize {
 				r.mu.Lock()
-				r.doc = append(r.doc, chunk)
+				doc.chunks = append(doc.chunks, chunk)
 				r.mu.Unlock()
 
 				chunk = &Chunk{}
@@ -73,19 +79,24 @@ func (r *Reader) ReadFile(io *os.File) {
 
 	if chunk.num != 0 {
 		r.mu.Lock()
-		r.doc = append(r.doc, chunk)
+		doc.chunks = append(doc.chunks, chunk)
 		r.mu.Unlock()
 	}
 
 	io.Close()
 
-	r.mainEb.Put(EvtReadDone, nil)
+	if final {
+		// report finished reading
+		r.mainEb.Put(EvtReadDone, nil)
+	} else {
+		r.mainEb.Put(EvtReadNew, nil)
+	}
 }
 
 // Snapshot returns a copy of the current items in the document
-func (r *Reader) Snapshot() []*Chunk {
+func (r *Reader) Snapshot() []*Doc {
 	r.mu.Lock()
-	res := make([]*Chunk, len(r.doc))
+	res := make([]*Doc, len(r.doc))
 	copy(res, r.doc)
 	r.mu.Unlock()
 
