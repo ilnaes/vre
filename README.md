@@ -8,6 +8,8 @@ For now, input for vre has to be piped in and matches will be printed out. For e
 vre < infile | head -n 5
 ```
 
+<img src="https://raw.githubusercontent.com/ilnaes/i/master/vre.gif" width=640>
+
 Inspired by Junegunn's [fzf](https://github.com/junegunn/fzf).
 
 ## Usage
