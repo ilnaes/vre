@@ -21,12 +21,14 @@ func NewEventBox() *EventBox {
 	}
 }
 
+// Clear removes all events.  Typically used in callback for Wait
 func (eb *EventBox) Clear() {
 	for e := range eb.events {
 		delete(eb.events, e)
 	}
 }
 
+// Wait runs when Put has been called and applies callback to the events
 func (eb *EventBox) Wait(callback func(*Events)) {
 	eb.cond.L.Lock()
 

@@ -48,7 +48,6 @@ func expandTabs(s []byte, bounds [][]int) (string, [][]int) {
 			}
 
 			pad += n - 1
-
 			last = j + 1
 		}
 
@@ -275,8 +274,6 @@ func (t *Terminal) Loop() {
 	}
 }
 
-var i int = 1
-
 func (t *Terminal) getch(ch chan<- int) {
 	b := make([]byte, 1)
 
@@ -285,8 +282,6 @@ func (t *Terminal) getch(ch chan<- int) {
 		_, err := syscall.Read(t.fd, b)
 		if err != nil {
 			// TODO: figure out why the fd becomes bad
-			// t.prompt = fmt.Sprintf("%d *", i)
-			i++
 			t.openConsole()
 			_, err = syscall.Read(t.fd, b)
 			if err != nil {
