@@ -6,9 +6,12 @@ import (
 )
 
 type Result struct {
-	v       int
-	index   [][ChunkSize][][]int
+	bounds  []*Bounds
 	matches []*[]byte
+}
+
+type Bounds struct {
+	index [][ChunkSize][][]int
 }
 
 type Re struct {
@@ -22,10 +25,13 @@ type Re struct {
 	finalDoc bool
 	finalRe  bool
 
-	doc  []*Chunk
-	curr int // current chunk processing
+	doc       []*Doc
+	currDoc   int // current doc processing
+	currChunk int // current chunk processing
 
-	res Result
+	res     []*Bounds
+	matches []*[]byte
+	v       int
 }
 
 func NewRe(eb *EventBox, ch chan<- []*[]byte) *Re {
@@ -34,10 +40,8 @@ func NewRe(eb *EventBox, ch chan<- []*[]byte) *Re {
 		localEb:  NewEventBox(),
 		mu:       sync.Mutex{},
 		doneChan: ch,
-		res: Result{
-			index:   make([][ChunkSize][][]int, 0),
-			matches: make([]*[]byte, 0),
-		},
+		res:      make([]*Bounds, 0),
+		matches:  make([]*[]byte, 0),
 	}
 }
 
@@ -45,36 +49,50 @@ func NewRe(eb *EventBox, ch chan<- []*[]byte) *Re {
 func (re *Re) Loop() {
 	done := false
 	for !done {
-		// re.curr has been initially set
+		// re.currDoc and re.currChunk has been initially set
 		// use to loop over re.doc
+		i := 0
 		for {
 			re.mu.Lock()
 
 			// only way to exit the inner loop
-			if re.doc == nil || re.prog == nil || re.curr >= len(re.doc) {
+			if re.doc == nil || re.prog == nil || re.currDoc >= len(re.doc) {
 				break
 			}
 
-			ch := re.doc[re.curr]
+			doc := re.doc[re.currDoc]
+			ch := doc.chunks[re.currChunk]
+
+			// allocate new list per doc
+			for re.currDoc >= len(re.res) {
+				re.res = append(re.res, &Bounds{index: make([][ChunkSize][][]int, 0)})
+			}
 
 			// allocate new bound per chunk
-			for re.curr >= len(re.res.index) {
-				re.res.index = append(re.res.index, [ChunkSize][][]int{})
+			for re.currChunk >= len(re.res[re.currDoc].index) {
+				re.res[re.currDoc].index = append(re.res[re.currDoc].index, [ChunkSize][][]int{})
 			}
 
 			// record regexp output
 			for i, s := range ch.lines {
 				if s != nil {
-					re.res.index[re.curr][i] = re.prog.FindAllIndex(*s, 1)
-					if len(re.res.index[re.curr][i]) > 0 {
-						re.res.matches = append(re.res.matches, ch.lines[i])
+					re.res[re.currDoc].index[re.currChunk][i] = re.prog.FindAllIndex(*s, 1)
+					if len(re.res[re.currDoc].index[re.currChunk][i]) > 0 {
+						re.matches = append(re.matches, ch.lines[i])
 					}
 				}
 			}
 
-			re.curr++
-			if re.curr%10 == 0 || re.curr == len(re.doc) {
+			re.currChunk++
+			i++
+			if i%10 == 0 || re.currChunk == len(doc.chunks) {
 				re.mainEb.Put(EvtSearchProgress, re.Snapshot())
+			}
+
+			if re.currChunk == len(doc.chunks) {
+				// hit end of current doc
+				re.currDoc++
+				re.currChunk = 0
 			}
 			re.mu.Unlock()
 		}
@@ -86,17 +104,21 @@ func (re *Re) Loop() {
 			re.mu.Lock()
 			re.localEb.Clear()
 
-			// we are done if all things are final and we are at the end
-			done = re.finalDoc && re.finalRe && len(re.doc) == re.curr
+			if re.finalDoc && re.finalRe {
+				// we are done if all things are final and we are at the end
+				// we check in this order to avoid slice errors
+				done = re.currDoc == len(re.doc) && re.currChunk == len(re.doc[re.currDoc-1].chunks)
+			}
+
 			re.mu.Unlock()
 		})
 	}
 
 	// send results
-	re.doneChan <- re.res.matches
+	re.doneChan <- re.matches
 }
 
-func (re *Re) UpdateDoc(d []*Chunk, final bool) {
+func (re *Re) UpdateDoc(d []*Doc, final bool) {
 	re.mu.Lock()
 	re.doc = d
 	re.finalDoc = re.finalDoc || final
@@ -116,20 +138,22 @@ func (re *Re) UpdateRe(q Query) {
 	if len(q.input) == 0 || err != nil {
 		// not proper regexp
 		re.mu.Lock()
-		re.res.matches = nil
+		re.matches = nil
 		re.prog = nil
-		re.curr = 0
+		re.currDoc = 0
+		re.currChunk = 0
 		re.mu.Unlock()
 		return
 	}
 
 	re.mu.Lock()
-	if re.res.v < q.v {
+	if re.v < q.v {
 		// only update if newer query
-		re.res.v++
-		re.res.matches = make([]*[]byte, 0)
+		re.v = q.v
+		re.matches = make([]*[]byte, 0)
 		re.prog = r
-		re.curr = 0
+		re.currDoc = 0
+		re.currChunk = 0
 
 		if re.sleep {
 			re.sleep = false
@@ -147,18 +171,31 @@ func (re *Re) Finish() {
 }
 
 // Snapshot returns a copy of the current outputs of the regexp program
-// It is called already inside a critical section
-func (re *Re) Snapshot() *Result {
-	index := make([][ChunkSize][][]int, re.curr)
-	matches := make([]*[]byte, len(re.res.matches))
-	copy(index, re.res.index[:re.curr])
-	copy(matches, re.res.matches)
-
+// It is called inside a critical section
+func (re *Re) Snapshot() Result {
 	res := Result{
-		v:       re.res.v,
-		index:   index,
-		matches: matches,
+		bounds:  make([]*Bounds, 0),
+		matches: make([]*[]byte, len(re.matches)),
 	}
 
-	return &res
+	copy(res.matches, re.matches)
+
+	for i, r := range re.res {
+		b := Bounds{}
+
+		if i < re.currDoc {
+			// a previous doc so copy everything
+			b.index = make([][ChunkSize][][]int, len(re.doc[i].chunks))
+			copy(b.index, r.index)
+		} else if i == re.currDoc {
+			b.index = make([][ChunkSize][][]int, re.currChunk)
+			copy(b.index, r.index[:re.currChunk])
+		} else {
+			break
+		}
+
+		res.bounds = append(res.bounds, &b)
+	}
+
+	return res
 }
