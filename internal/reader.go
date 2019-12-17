@@ -6,11 +6,10 @@ import (
 	"sync"
 )
 
-const ChunkSize int = 250
-
 type Doc struct {
 	chunks   []*Chunk
 	filename string
+	numLines int
 }
 
 type Chunk struct {
@@ -66,6 +65,7 @@ func (r *Reader) ReadFile(io *os.File, name string, final bool) {
 			if chunk.num == ChunkSize {
 				r.mu.Lock()
 				doc.chunks = append(doc.chunks, chunk)
+				doc.numLines += chunk.num
 				r.mu.Unlock()
 
 				chunk = &Chunk{}
@@ -80,6 +80,7 @@ func (r *Reader) ReadFile(io *os.File, name string, final bool) {
 	if chunk.num != 0 {
 		r.mu.Lock()
 		doc.chunks = append(doc.chunks, chunk)
+		doc.numLines += chunk.num
 		r.mu.Unlock()
 	}
 

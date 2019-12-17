@@ -12,16 +12,18 @@ func Run() {
 	tui := NewTerminal(eb)
 	reader := NewReader(eb)
 	re := NewRe(eb, doneChan)
+	files := 0
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		// pipe in data
 		go reader.ReadFile(os.Stdin, "", true)
 	} else {
 		// read in files
+		files = 1
 		go reader.ReadFiles(os.Args[1:])
 	}
 
-	tui.Init()
+	tui.Init(files)
 	go tui.Loop()
 	go re.Loop()
 

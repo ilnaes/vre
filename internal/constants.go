@@ -3,6 +3,11 @@ package vre
 // number of spaces in a tab
 var TABSTOP int = 8
 
+// number of lines in a chunk
+const ChunkSize int = 250
+
+const console string = "/dev/tty"
+
 const (
 	EvtReadNew EventType = iota
 	EvtReadDone

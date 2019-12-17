@@ -128,8 +128,6 @@ func getLine(s []byte, bnds [][]int, a, b int, color string) string {
 	return buf + "\r\n"
 }
 
-const console string = "/dev/tty"
-
 type Query struct {
 	input string
 	v     int
@@ -151,7 +149,8 @@ type Terminal struct {
 	prompt string
 	query  Query
 
-	doc      []*Chunk
+	doc      []*Doc
+	files    int
 	numLines int
 
 	result    *Result
@@ -175,8 +174,8 @@ func (t *Terminal) Loop() {
 
 	go t.getch(inChan)
 
-	done := false
-	for !done {
+Loop:
+	for {
 		// read a byte from terminal input
 		select {
 		case <-winchChan:
@@ -189,11 +188,11 @@ func (t *Terminal) Loop() {
 				// Ctrl-C/D quit
 				t.Close()
 				t.mainEb.Put(EvtQuit, nil)
-				done = true
+				break Loop
 
 			case KEY_ENTER:
 				t.mainEb.Put(EvtSearchFinal, true)
-				done = true
+				break Loop
 
 			case KEY_CTRLJ:
 				if t.posY+t.height-1 < t.numLines {
@@ -324,33 +323,68 @@ func (t *Terminal) Refresh() {
 	buf.WriteString("\x1b[?25l\x1b[H")
 
 	nrows := 0
-	ch := t.posY / ChunkSize
-	i := t.posY - ch*ChunkSize
+
+	prevLines := 0
+	d := 0
+	// find first relevant doc
+	for d < len(t.doc) && prevLines+t.doc[d].numLines+t.files < t.posY {
+		prevLines += t.doc[d].numLines + t.files
+		d++
+	}
+
+	if t.files == 1 {
+		if prevLines != t.posY {
+			// skip filename line
+			prevLines++
+		} else {
+			// print filename
+			buf.WriteString("\x1b[K\x1b[33;1m******    " + t.doc[d].filename + "    ******\x1b[0m\r\n")
+			nrows++
+		}
+	}
+
+	ch := (t.posY - prevLines) / ChunkSize
+	i := t.posY - prevLines - ch*ChunkSize
 
 	// prints lines in view
-	for ; ch < len(t.doc); ch++ {
-		chunk := t.doc[ch]
+	// d, ch, i have been previously set up
+Loop:
+	for ; d < len(t.doc); d++ {
+		doc := t.doc[d]
+		for ; ch < len(doc.chunks); ch++ {
+			chunk := doc.chunks[ch]
 
-		for ; i < chunk.num; i++ {
-			buf.WriteString("\x1b[K")
+			for ; i < chunk.num; i++ {
+				buf.WriteString("\x1b[K")
 
-			line := ""
-			if t.result == nil || len(t.result.index) < ch+1 {
-				line = getLine(*t.doc[ch].lines[i], nil, t.posX, t.posX+t.width, "\x1b[31;1m")
-			} else {
-				line = getLine(*t.doc[ch].lines[i], t.result.index[ch][i], t.posX, t.posX+t.width, "\x1b[31;1m")
+				line := ""
+				if t.result == nil || len(t.result.bounds) < d || len(t.result.bounds[d].index) < ch+1 {
+					// there is no bounds for this
+					line = getLine(*chunk.lines[i], nil, t.posX, t.posX+t.width, "\x1b[31;1m")
+				} else {
+					line = getLine(*chunk.lines[i], t.result.bounds[d].index[ch][i], t.posX, t.posX+t.width, "\x1b[31;1m")
+				}
+				buf.WriteString(line)
+				nrows++
+
+				if nrows > t.height-3 {
+					break Loop
+				}
 			}
-			buf.WriteString(line)
-			nrows++
+			i = 0
 
 			if nrows > t.height-3 {
-				break
+				break Loop
 			}
 		}
-		i = 0
+		ch = 0
 
-		if nrows > t.height-3 {
-			break
+		if d != len(t.doc)-1 {
+			buf.WriteString("\x1b[K\x1b[33;1m******    " + t.doc[d+1].filename + "    ******\x1b[0m\r\n")
+			nrows++
+			if nrows > t.height-3 {
+				break Loop
+			}
 		}
 	}
 
@@ -414,9 +448,23 @@ func (t *Terminal) UpdateBounds(x *Result) {
 	refresh := false
 
 	// refresh the display if got a new version of result and got enough chunks
-	if (len(t.result.index) == len(t.doc) || len(t.result.index) > (t.posY+t.height)/ChunkSize) && !t.displayed {
-		t.displayed = true
-		refresh = true
+	if !t.displayed {
+		n := len(t.result.bounds) - 1
+		numLines := 0
+
+		for d := 0; d < len(t.result.bounds); d++ {
+			if len(t.result.bounds[d].index) == len(t.doc[d].chunks) {
+				numLines += t.doc[d].numLines + t.files
+			} else {
+				numLines += t.files + len(t.result.bounds[d].index)*ChunkSize
+			}
+		}
+
+		if (len(t.result.bounds) == len(t.doc) && len(t.result.bounds[n].index) == len(t.doc[n].chunks)) ||
+			numLines > t.posY+t.height {
+			t.displayed = true
+			refresh = true
+		}
 	}
 
 	t.mu.Unlock()
@@ -434,17 +482,19 @@ func (t *Terminal) UpdatePrompt(s string) {
 }
 
 // UpdateChunks saves input snapshot
-func (t *Terminal) UpdateChunks(d []*Chunk, final bool) {
+func (t *Terminal) UpdateChunks(docs []*Doc, final bool) {
 	t.mu.Lock()
 
-	refresh := t.doc == nil || (len(t.doc) < (t.posX+t.height)/ChunkSize && len(d) >= (t.posX+t.height)/ChunkSize)
+	t.doc = docs
 
-	t.doc = d
-
+	oldLines := t.numLines
 	t.numLines = 0
-	for _, c := range t.doc {
-		t.numLines += c.num
+	for _, d := range t.doc {
+		t.numLines += d.numLines
 	}
+
+	// update the view if new relevant chunks came in
+	refresh := t.doc == nil || (oldLines < t.posX+t.height && t.numLines >= t.posX+t.height)
 
 	t.mu.Unlock()
 
@@ -467,7 +517,9 @@ func (t *Terminal) GetSize() {
 }
 
 // Init saves current state of terminal, sets up raw mode and alternate screen buffer
-func (t *Terminal) Init() {
+func (t *Terminal) Init(files int) {
+	t.files = files
+
 	t.openConsole()
 
 	origState, err := terminal.GetState(t.fd)
