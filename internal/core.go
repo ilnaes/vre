@@ -7,7 +7,7 @@ import (
 )
 
 func Run() {
-	doneChan := make(chan []*[]byte)
+	doneChan := make(chan *Matches)
 	eb := NewEventBox()
 	tui := NewTerminal(eb)
 	reader := NewReader(eb)
@@ -85,7 +85,10 @@ func Run() {
 		res := <-doneChan
 		tui.Close()
 
-		for _, s := range res {
+		for i, s := range res.s {
+			if files == 1 {
+				os.Stdout.WriteString(re.doc[res.docs[i]].filename + ":")
+			}
 			os.Stdout.Write(*s)
 			os.Stdout.WriteString("\n")
 		}

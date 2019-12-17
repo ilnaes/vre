@@ -6,13 +6,13 @@ import (
 )
 
 type Matches struct {
-	matches []*[]byte
-	docs    []int
+	s    []*[]byte
+	docs []int
 }
 
 type Result struct {
 	bounds  []*Bounds
-	matches []*[]byte
+	matches Matches
 	v       int
 }
 
@@ -24,7 +24,7 @@ type Re struct {
 	prog     *regexp.Regexp
 	mainEb   *EventBox
 	localEb  *EventBox
-	doneChan chan<- []*[]byte
+	doneChan chan<- *Matches
 	mu       sync.Mutex
 
 	sleep    bool
@@ -37,17 +37,17 @@ type Re struct {
 
 	res     []*Bounds
 	matches []*[]byte
+	docNums []int
 	v       int
 }
 
-func NewRe(eb *EventBox, ch chan<- []*[]byte) *Re {
+func NewRe(eb *EventBox, ch chan<- *Matches) *Re {
 	return &Re{
 		mainEb:   eb,
 		localEb:  NewEventBox(),
 		mu:       sync.Mutex{},
 		doneChan: ch,
 		res:      make([]*Bounds, 0),
-		matches:  make([]*[]byte, 0),
 	}
 }
 
@@ -92,6 +92,7 @@ func (re *Re) Loop() {
 					re.res[re.currDoc].index[re.currChunk][i] = re.prog.FindAllIndex(*s, 1)
 					if len(re.res[re.currDoc].index[re.currChunk][i]) > 0 {
 						re.matches = append(re.matches, ch.lines[i])
+						re.docNums = append(re.docNums, re.currDoc)
 					}
 				}
 			}
@@ -122,7 +123,10 @@ func (re *Re) Loop() {
 	}
 
 	// send results
-	re.doneChan <- re.matches
+	re.doneChan <- &Matches{
+		s:    re.matches,
+		docs: re.docNums,
+	}
 }
 
 func (re *Re) UpdateDoc(d []*Doc, final bool) {
@@ -146,6 +150,7 @@ func (re *Re) UpdateRe(q Query) {
 		// not proper regexp
 		re.mu.Lock()
 		re.matches = nil
+		re.docNums = nil
 		re.prog = nil
 		re.currDoc = 0
 		re.currChunk = 0
@@ -158,6 +163,7 @@ func (re *Re) UpdateRe(q Query) {
 		// only update if newer query
 		re.v = q.v
 		re.matches = make([]*[]byte, 0)
+		re.docNums = make([]int, 0)
 		re.prog = r
 		re.currDoc = 0
 		re.currChunk = 0
@@ -181,12 +187,15 @@ func (re *Re) Finish() {
 // It is called inside a critical section
 func (re *Re) Snapshot() *Result {
 	res := Result{
-		bounds:  make([]*Bounds, 0),
-		matches: make([]*[]byte, len(re.matches)),
-		v:       re.v,
+		bounds: make([]*Bounds, 0),
+		matches: Matches{
+			s:    make([]*[]byte, len(re.matches)),
+			docs: make([]int, len(re.matches)),
+		},
+		v: re.v,
 	}
 
-	copy(res.matches, re.matches)
+	copy(res.matches.s, re.matches)
 
 	for i, r := range re.res {
 		b := Bounds{}
