@@ -202,9 +202,6 @@ Loop:
 						t.posY++
 						t.Refresh()
 					}
-				} else {
-					t.hideY++
-					t.Refresh()
 				}
 
 			case KEY_CTRLH:
@@ -218,27 +215,33 @@ Loop:
 				t.Refresh()
 
 			case KEY_CTRLK:
-				if t.posY > 0 {
-					t.posY--
-					t.Refresh()
+				if !t.hide {
+					if t.posY > 0 {
+						t.posY--
+						t.Refresh()
+					}
 				}
 
 			case KEY_CTRLF:
-				if t.posY+t.height-1 < t.numLines {
-					t.posY += t.height
-					if t.posY+t.height-1 > t.numLines {
-						t.posY = t.numLines - t.height + 1
+				if !t.hide {
+					if t.posY+t.height-1 < t.numLines {
+						t.posY += t.height
+						if t.posY+t.height-1 > t.numLines {
+							t.posY = t.numLines - t.height + 1
+						}
+						t.Refresh()
 					}
-					t.Refresh()
 				}
 
 			case KEY_CTRLB:
-				if t.posY > 0 {
-					t.posY -= t.height
-					if t.posY < 0 {
-						t.posY = 0
+				if !t.hide {
+					if t.posY > 0 {
+						t.posY -= t.height
+						if t.posY < 0 {
+							t.posY = 0
+						}
+						t.Refresh()
 					}
-					t.Refresh()
 				}
 
 			case KEY_LEFT:
@@ -258,6 +261,15 @@ Loop:
 				t.Refresh()
 
 			case KEY_DEL:
+				if t.offset > 0 && len(t.query.input) > 0 {
+					t.query.v++
+					t.query.input = t.query.input[0:len(t.query.input)-t.offset] + t.query.input[len(t.query.input)-t.offset+1:]
+					t.offset--
+					t.mainEb.Put(EvtSearchNew, t.query)
+					t.RefreshPrompt()
+				}
+
+			case KEY_BACKSPACE:
 				if len(t.query.input) > 0 {
 					if t.offset < len(t.query.input) {
 						t.query.v++
@@ -315,6 +327,11 @@ func (t *Terminal) getch(ch chan<- int) {
 				ch <- KEY_LEFT
 			} else if b[0] == 67 {
 				ch <- KEY_RIGHT
+			} else if b[0] == 51 {
+				syscall.Read(t.fd, b)
+				if b[0] == 126 {
+					ch <- KEY_DEL
+				}
 			}
 		} else {
 			ch <- int(b[0])
@@ -351,11 +368,12 @@ func (t *Terminal) Refresh() {
 		if !t.hide && prevLines+t.doc[d].numLines+t.files >= posY {
 			break
 		}
-		if t.hide && (t.result == nil || d >= len(t.result.output) || prevLines+len(t.result.output[d])+t.files >= posY) {
+		if t.hide && (t.result == nil || d >= len(t.result.matchLines) ||
+			prevLines+len(t.result.matchLines[d])+t.files >= posY) {
 			break
 		}
 		if t.hide {
-			prevLines += len(t.result.output[d]) + t.files
+			prevLines += len(t.result.matchLines[d]) + t.files
 		} else {
 			prevLines += t.doc[d].numLines + t.files
 		}
@@ -375,24 +393,24 @@ func (t *Terminal) Refresh() {
 		}
 	}
 
-	ch := (posY - prevLines) / ChunkSize
-	i := posY - prevLines - ch*ChunkSize
+	// XXX: probably better way to do this
+	if !t.hide {
+		ch := (posY - prevLines) / ChunkSize
+		i := posY - prevLines - ch*ChunkSize
 
-	// prints lines in view
-	// d, ch, i have been previously set up
-Loop:
-	for ; d < len(t.doc); d++ {
-		doc := t.doc[d]
-		for ; ch < len(doc.chunks); ch++ {
-			chunk := doc.chunks[ch]
+		// prints lines in view
+		// d, ch, i have been previously set up
+	Loop:
+		for ; d < len(t.doc); d++ {
+			doc := t.doc[d]
+			for ; ch < len(doc.chunks); ch++ {
+				chunk := doc.chunks[ch]
 
-			for ; i < chunk.num; i++ {
-				exists := t.result != nil && len(t.result.bounds) > d && len(t.result.bounds[d].index) > ch
-				if !t.hide || (exists && len(t.result.bounds[d].index[ch][i]) > 0) {
+				for ; i < chunk.num; i++ {
 					buf.WriteString("\x1b[K")
 
 					line := ""
-					if exists {
+					if t.result != nil && len(t.result.bounds) > d && len(t.result.bounds[d].index) > ch {
 						line = getLine(*chunk.lines[i], t.result.bounds[d].index[ch][i], t.posX, t.posX+t.width, matchColor)
 					} else {
 						// there is no bounds for this
@@ -405,22 +423,63 @@ Loop:
 						break Loop
 					}
 				}
-			}
-			i = 0
+				i = 0
 
-			if nrows > t.height-3 {
-				break Loop
+				if nrows > t.height-3 {
+					break Loop
+				}
+			}
+			ch = 0
+
+			if d != len(t.doc)-1 {
+				buf.WriteString("\x1b[K")
+				buf.WriteString(fileColor)
+				buf.WriteString("******  " + t.doc[d+1].filename + "  ******\x1b[0m\r\n")
+				nrows++
+				if nrows > t.height-3 {
+					break Loop
+				}
 			}
 		}
-		ch = 0
+	} else {
+		i := posY - prevLines
 
-		if d != len(t.doc)-1 {
-			buf.WriteString("\x1b[K")
-			buf.WriteString(fileColor)
-			buf.WriteString("******  " + t.doc[d+1].filename + "  ******\x1b[0m\r\n")
-			nrows++
+		// prints matches in view
+		// d, i have been previously set up
+	Loop2:
+		for ; d < len(t.doc); d++ {
+			if t.result != nil && d < len(t.result.matchLines) {
+				matches := t.result.matchLines[d]
+				for ; i < len(matches); i++ {
+					ch := matches[i] / ChunkSize
+					j := matches[i] % ChunkSize
+					chunk := t.doc[d].chunks[ch]
+
+					buf.WriteString("\x1b[K")
+
+					line := getLine(*chunk.lines[j], t.result.bounds[d].index[ch][j], t.posX, t.posX+t.width, matchColor)
+					buf.WriteString(line)
+					nrows++
+
+					if nrows > t.height-3 {
+						break Loop2
+					}
+				}
+				i = 0
+			}
+
 			if nrows > t.height-3 {
-				break Loop
+				break Loop2
+			}
+
+			if d != len(t.doc)-1 {
+				buf.WriteString("\x1b[K")
+				buf.WriteString(fileColor)
+				buf.WriteString("******  " + t.doc[d+1].filename + "  ******\x1b[0m\r\n")
+				nrows++
+				if nrows > t.height-3 {
+					break Loop2
+				}
 			}
 		}
 	}
@@ -445,9 +504,9 @@ func (t *Terminal) RefreshPrompt() {
 		buf += "\r\n"
 	} else {
 		matchCount := t.numLines
-		if t.result != nil && t.result.output != nil {
+		if t.result != nil && t.result.matchLines != nil {
 			matchCount = 0
-			for _, x := range t.result.output {
+			for _, x := range t.result.matchLines {
 				matchCount += len(x)
 			}
 		}

@@ -26,6 +26,7 @@ To navigate:
 - `CTRL-K` Up
 - `CTRL-F` Page down
 - `CTRL-B` Page up
+- `CTRL-T` Toggle showing unmatched lines
 - `ENTER` Quit and output matches
 - `CTRL-C`/`CTRL-D` Quit without outputting
 
@@ -33,7 +34,7 @@ To navigate:
 
 - [x] Line count
 - [x] File inputs
-- [ ] Toggle displaying unmatched lines
+- [x] Toggle displaying unmatched lines
 - [ ] sed-like search/replace
 - [ ] Command line options like tabstop length, etc.
 - [ ] Submatch highlighting
