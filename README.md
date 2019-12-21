@@ -34,6 +34,7 @@ To navigate:
 - [x] Line count
 - [x] File inputs
 - [ ] Toggle displaying unmatched lines
+- [ ] sed-like search/replace
 - [ ] Command line options like tabstop length, etc.
 - [ ] Submatch highlighting
-- [ ] sed-like search/replace
+- [ ] Fix the flickering

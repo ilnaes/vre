@@ -8,16 +8,15 @@ import (
 // Output.output is what gets printed at the end
 type Output struct {
 	replace bool
-	output  []*[]byte
-	docs    []int
+	output  [][]*[]byte
 }
 
 // Result goes to tui for display
 type Result struct {
-	bounds     []*Bounds
-	numMatches int
-	v          int
-	replace    bool
+	bounds  []*Bounds
+	output  [][]*[]byte
+	v       int
+	replace bool
 }
 
 type Bounds struct {
@@ -41,8 +40,7 @@ type Re struct {
 
 	replace bool
 	res     []*Bounds
-	matches []*[]byte
-	docNums []int
+	matches [][]*[]byte
 	v       int
 }
 
@@ -84,6 +82,7 @@ func (re *Re) Loop() {
 			// allocate new list per doc
 			for re.currDoc >= len(re.res) {
 				re.res = append(re.res, &Bounds{index: make([][ChunkSize][][]int, 0)})
+				re.matches = append(re.matches, make([]*[]byte, 0))
 			}
 
 			// allocate new bound per chunk
@@ -96,15 +95,15 @@ func (re *Re) Loop() {
 				if s != nil {
 					re.res[re.currDoc].index[re.currChunk][i] = re.prog.FindAllIndex(*s, 1)
 					if len(re.res[re.currDoc].index[re.currChunk][i]) > 0 {
-						re.matches = append(re.matches, ch.lines[i])
-						re.docNums = append(re.docNums, re.currDoc)
+						re.matches[re.currDoc] = append(re.matches[re.currDoc], ch.lines[i])
+						// re.docNums = append(re.docNums, re.currDoc)
 					}
 				}
 			}
 
 			re.currChunk++
 			i++
-			if i%10 == 0 || re.currChunk == len(doc.chunks) {
+			if i%50 == 0 || re.currChunk == len(doc.chunks) {
 				re.mainEb.Put(EvtSearchProgress, re.Snapshot())
 			}
 			re.mu.Unlock()
@@ -129,8 +128,8 @@ func (re *Re) Loop() {
 
 	// send results
 	re.doneChan <- &Output{
-		output:  re.matches,
-		docs:    re.docNums,
+		output: re.matches,
+		// docs:    re.docNums,
 		replace: re.replace,
 	}
 }
@@ -155,8 +154,7 @@ func (re *Re) UpdateRe(q Query) {
 	if len(q.input) == 0 || err != nil {
 		// not proper regexp
 		re.mu.Lock()
-		re.matches = nil
-		re.docNums = nil
+		// re.docNums = nil
 		re.prog = nil
 		re.currDoc = 0
 		re.currChunk = 0
@@ -168,8 +166,10 @@ func (re *Re) UpdateRe(q Query) {
 	if re.v < q.v {
 		// only update if newer query
 		re.v = q.v
-		re.matches = make([]*[]byte, 0)
-		re.docNums = make([]int, 0)
+		for i := range re.matches {
+			re.matches[i] = make([]*[]byte, 0)
+		}
+		// re.docNums = make([]int, 0)
 		re.prog = r
 		re.currDoc = 0
 		re.currChunk = 0
@@ -192,21 +192,16 @@ func (re *Re) Finish() {
 // Snapshot returns a copy of the current outputs of the regexp program
 // It is called inside a critical section
 func (re *Re) Snapshot() *Result {
-	numMatches := 0
-	if re.matches != nil {
-		numMatches = len(re.matches)
-	} else {
-		if re.doc != nil {
-			for _, d := range re.doc {
-				numMatches += d.numLines
-			}
-		}
-	}
 	res := Result{
-		bounds:     make([]*Bounds, 0),
-		numMatches: numMatches,
-		v:          re.v,
-		replace:    re.replace,
+		bounds:  make([]*Bounds, 0),
+		output:  make([][]*[]byte, len(re.matches)),
+		v:       re.v,
+		replace: re.replace,
+	}
+
+	for i, l := range re.matches {
+		res.output[i] = make([]*[]byte, len(l))
+		copy(res.output[i], l)
 	}
 
 	for i, r := range re.res {
