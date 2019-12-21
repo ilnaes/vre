@@ -7,7 +7,7 @@ import (
 )
 
 func Run() {
-	doneChan := make(chan *Matches)
+	doneChan := make(chan *Output)
 	eb := NewEventBox()
 	tui := NewTerminal(eb)
 	reader := NewReader(eb)

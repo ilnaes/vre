@@ -408,8 +408,8 @@ func (t *Terminal) RefreshPrompt() {
 		buf += "\r\n"
 	} else {
 		matchCount := t.numLines
-		if t.result != nil && t.result.matches.s != nil {
-			matchCount = len(t.result.matches.s)
+		if t.result != nil {
+			matchCount = t.result.numMatches
 		}
 		buf += fmt.Sprintf("\x1b[37;1m%d\x1b[31;1m/\x1b[37;1m%d\x1b[0m\r\n", matchCount, t.numLines)
 	}

@@ -5,15 +5,15 @@ import (
 	"sync"
 )
 
-type Matches struct {
+type Output struct {
 	s    []*[]byte
 	docs []int
 }
 
 type Result struct {
-	bounds  []*Bounds
-	matches Matches
-	v       int
+	bounds     []*Bounds
+	numMatches int
+	v          int
 }
 
 type Bounds struct {
@@ -24,7 +24,7 @@ type Re struct {
 	prog     *regexp.Regexp
 	mainEb   *EventBox
 	localEb  *EventBox
-	doneChan chan<- *Matches
+	doneChan chan<- *Output
 	mu       sync.Mutex
 
 	sleep    bool
@@ -41,7 +41,7 @@ type Re struct {
 	v       int
 }
 
-func NewRe(eb *EventBox, ch chan<- *Matches) *Re {
+func NewRe(eb *EventBox, ch chan<- *Output) *Re {
 	return &Re{
 		mainEb:   eb,
 		localEb:  NewEventBox(),
@@ -123,7 +123,7 @@ func (re *Re) Loop() {
 	}
 
 	// send results
-	re.doneChan <- &Matches{
+	re.doneChan <- &Output{
 		s:    re.matches,
 		docs: re.docNums,
 	}
@@ -186,16 +186,21 @@ func (re *Re) Finish() {
 // Snapshot returns a copy of the current outputs of the regexp program
 // It is called inside a critical section
 func (re *Re) Snapshot() *Result {
-	res := Result{
-		bounds: make([]*Bounds, 0),
-		matches: Matches{
-			s:    make([]*[]byte, len(re.matches)),
-			docs: make([]int, len(re.matches)),
-		},
-		v: re.v,
+	numMatches := 0
+	if re.matches != nil {
+		numMatches = len(re.matches)
+	} else {
+		if re.doc != nil {
+			for _, d := range re.doc {
+				numMatches += d.numLines
+			}
+		}
 	}
-
-	copy(res.matches.s, re.matches)
+	res := Result{
+		bounds:     make([]*Bounds, 0),
+		numMatches: numMatches,
+		v:          re.v,
+	}
 
 	for i, r := range re.res {
 		b := Bounds{}
