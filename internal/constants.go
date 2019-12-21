@@ -8,6 +8,9 @@ const ChunkSize int = 250
 
 const console string = "/dev/tty"
 
+const fileColor = "\x1b[35;1m"
+const matchColor = "\x1b[32;1m"
+
 const (
 	EvtReadNew EventType = iota
 	EvtReadDone
@@ -29,8 +32,9 @@ const (
 	KEY_CTRLH = 8
 	KEY_CTRLJ = 10
 	KEY_CTRLK = 11
-	KEY_ENTER = 13
 	KEY_CTRLL = 12
+	KEY_ENTER = 13
+	KEY_CTRLT = 20
 	KEY_ESC   = 27
 	KEY_DEL   = 127
 	KEY_LEFT  = 279168

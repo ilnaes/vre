@@ -5,15 +5,19 @@ import (
 	"sync"
 )
 
+// Output.output is what gets printed at the end
 type Output struct {
-	s    []*[]byte
-	docs []int
+	replace bool
+	output  []*[]byte
+	docs    []int
 }
 
+// Result goes to tui for display
 type Result struct {
 	bounds     []*Bounds
 	numMatches int
 	v          int
+	replace    bool
 }
 
 type Bounds struct {
@@ -35,6 +39,7 @@ type Re struct {
 	currDoc   int // current doc processing
 	currChunk int // current chunk processing
 
+	replace bool
 	res     []*Bounds
 	matches []*[]byte
 	docNums []int
@@ -124,8 +129,9 @@ func (re *Re) Loop() {
 
 	// send results
 	re.doneChan <- &Output{
-		s:    re.matches,
-		docs: re.docNums,
+		output:  re.matches,
+		docs:    re.docNums,
+		replace: re.replace,
 	}
 }
 
@@ -200,6 +206,7 @@ func (re *Re) Snapshot() *Result {
 		bounds:     make([]*Bounds, 0),
 		numMatches: numMatches,
 		v:          re.v,
+		replace:    re.replace,
 	}
 
 	for i, r := range re.res {

@@ -140,6 +140,8 @@ type Terminal struct {
 	mainEb    *EventBox
 	mu        sync.Mutex
 
+	hide   bool
+	hideY  int
 	width  int
 	height int
 	posY   int
@@ -246,6 +248,10 @@ Loop:
 					t.RefreshPrompt()
 				}
 
+			case KEY_CTRLT:
+				t.hide = !t.hide
+				t.Refresh()
+
 			case KEY_DEL:
 				if len(t.query.input) > 0 {
 					if t.offset < len(t.query.input) {
@@ -338,7 +344,9 @@ func (t *Terminal) Refresh() {
 			prevLines++
 		} else {
 			// print filename
-			buf.WriteString("\x1b[K\x1b[33;1m******    " + t.doc[d].filename + "    ******\x1b[0m\r\n")
+			buf.WriteString("\x1b[K")
+			buf.WriteString(fileColor)
+			buf.WriteString("******    " + t.doc[d].filename + "    ******\x1b[0m\r\n")
 			nrows++
 		}
 	}
@@ -360,9 +368,9 @@ Loop:
 				line := ""
 				if t.result == nil || len(t.result.bounds) < d || len(t.result.bounds[d].index) < ch+1 {
 					// there is no bounds for this
-					line = getLine(*chunk.lines[i], nil, t.posX, t.posX+t.width, "\x1b[31;1m")
+					line = getLine(*chunk.lines[i], nil, t.posX, t.posX+t.width, matchColor)
 				} else {
-					line = getLine(*chunk.lines[i], t.result.bounds[d].index[ch][i], t.posX, t.posX+t.width, "\x1b[31;1m")
+					line = getLine(*chunk.lines[i], t.result.bounds[d].index[ch][i], t.posX, t.posX+t.width, matchColor)
 				}
 				buf.WriteString(line)
 				nrows++
@@ -380,7 +388,9 @@ Loop:
 		ch = 0
 
 		if d != len(t.doc)-1 {
-			buf.WriteString("\x1b[K\x1b[33;1m******    " + t.doc[d+1].filename + "    ******\x1b[0m\r\n")
+			buf.WriteString("\x1b[K")
+			buf.WriteString(fileColor)
+			buf.WriteString("******  " + t.doc[d+1].filename + "  ******\x1b[0m\r\n")
 			nrows++
 			if nrows > t.height-3 {
 				break Loop

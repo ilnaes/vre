@@ -85,11 +85,11 @@ func Run() {
 		res := <-doneChan
 		tui.Close()
 
-		for i, s := range res.s {
+		for i, line := range res.output {
 			if files == 1 {
 				os.Stdout.WriteString(re.doc[res.docs[i]].filename + ":")
 			}
-			os.Stdout.Write(*s)
+			os.Stdout.Write(*line)
 			os.Stdout.WriteString("\n")
 		}
 	}
