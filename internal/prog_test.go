@@ -36,15 +36,20 @@ func TestParse(t *testing.T) {
 		{"foo/bar", nil},
 		{"/foo/bar/baz/qux", nil},
 		{"foo/bar/baz/qux/quux", nil},
+		{"/foo/", &Input{pattern: "foo"}},
 		{"foo/bar/baz", &Input{cmd: "foo", pattern: "bar", flag: "baz"}},
 		{"foo/bar/baz/qux", &Input{cmd: "foo", pattern: "bar", replace: strPtr("baz"), flag: "qux"}},
 		{"/bar/baz", &Input{pattern: "bar", flag: "baz"}},
 		{"/bar/baz/asd", &Input{pattern: "bar", replace: strPtr("baz"), flag: "asd"}},
 		{"foo\\/bar/baz/asd", &Input{cmd: "foo\\/bar", pattern: "baz", flag: "asd"}},
+		{"foo/bar\\/baz/asd", &Input{cmd: "foo", pattern: "bar\\/baz", flag: "asd"}},
+		{"foo/bar/baz\\/asd", &Input{cmd: "foo", pattern: "bar", flag: "baz\\/asd"}},
+		{"foo/bar/baz\\/asd/qux", &Input{cmd: "foo", pattern: "bar", replace: strPtr("baz\\/asd"), flag: "qux"}},
 		{"foo/bar//", &Input{cmd: "foo", pattern: "bar", replace: strPtr("")}},
-		{"///", &Input{replace: strPtr("")}},
+		{"//", nil},
+		{"/foo//", &Input{pattern: "foo", replace: strPtr("")}},
 		{"////", nil},
-		{"///asd", &Input{replace: strPtr(""), flag: "asd"}},
+		{"/foo//asd", &Input{pattern: "foo", replace: strPtr(""), flag: "asd"}},
 	}
 
 	for _, test := range tests {

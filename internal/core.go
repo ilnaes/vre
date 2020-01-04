@@ -11,7 +11,7 @@ func Run() {
 	eb := NewEventBox()
 	tui := NewTerminal(eb)
 	reader := NewReader(eb)
-	re := NewRe(eb, doneChan)
+	re := NewMachine(eb, doneChan)
 	files := 0
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
@@ -37,7 +37,7 @@ func Run() {
 
 				case EvtSearchNew:
 					s := v.(Query)
-					re.UpdateRe(s)
+					re.UpdateMachine(s)
 					if len(s.input) == 0 {
 						tui.ClearBounds()
 					}
