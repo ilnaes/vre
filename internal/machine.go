@@ -1,7 +1,6 @@
 package vre
 
 import (
-	"regexp"
 	"sync"
 )
 
@@ -14,6 +13,7 @@ type Output struct {
 // Result goes to tui for display
 type Result struct {
 	bounds     []*Bounds
+	rBounds    []*Bounds
 	matchLines [][]int
 	v          int
 	replace    bool
@@ -24,7 +24,7 @@ type Bounds struct {
 }
 
 type Machine struct {
-	prog     *regexp.Regexp
+	prog     *Prog
 	mainEb   *EventBox
 	localEb  *EventBox
 	doneChan chan<- *Output
@@ -38,10 +38,10 @@ type Machine struct {
 	currDoc   int // current doc processing
 	currChunk int // current chunk processing
 
-	replace    bool
-	res        []*Bounds
-	matches    [][]*[]byte
-	matchLines [][]int
+	matchIndex []*Bounds
+	subIndex   []*Bounds
+	output     [][]*[]byte // output to be printed (index: doc, line)
+	matchLines [][]int     // lines of each doc that has a match (index: doc)
 	v          int
 }
 
@@ -51,8 +51,9 @@ func NewMachine(eb *EventBox, ch chan<- *Output) *Machine {
 		localEb:    NewEventBox(),
 		mu:         sync.Mutex{},
 		doneChan:   ch,
-		res:        make([]*Bounds, 0),
-		matches:    make([][]*[]byte, 0),
+		matchIndex: make([]*Bounds, 0),
+		subIndex:   make([]*Bounds, 0),
+		output:     make([][]*[]byte, 0),
 		matchLines: make([][]int, 0),
 	}
 }
@@ -83,24 +84,39 @@ func (m *Machine) Loop() {
 			ch := doc.chunks[m.currChunk]
 
 			// allocate new list per doc
-			for m.currDoc >= len(m.res) {
-				m.res = append(m.res, &Bounds{index: make([][ChunkSize][][]int, 0)})
-				m.matches = append(m.matches, make([]*[]byte, 0))
+			for m.currDoc >= len(m.matchIndex) {
+				m.matchIndex = append(m.matchIndex, &Bounds{index: make([][ChunkSize][][]int, 0)})
+				m.output = append(m.output, make([]*[]byte, 0))
 				m.matchLines = append(m.matchLines, make([]int, 0))
+				m.subIndex = append(m.subIndex, &Bounds{index: make([][ChunkSize][][]int, 0)})
 			}
 
 			// allocate new bound per chunk
-			for m.currChunk >= len(m.res[m.currDoc].index) {
-				m.res[m.currDoc].index = append(m.res[m.currDoc].index, [ChunkSize][][]int{})
+			for m.currChunk >= len(m.matchIndex[m.currDoc].index) {
+				m.matchIndex[m.currDoc].index = append(m.matchIndex[m.currDoc].index, [ChunkSize][][]int{})
+				m.subIndex[m.currDoc].index = append(m.subIndex[m.currDoc].index, [ChunkSize][][]int{})
 			}
 
 			// record regexp output
 			for i, s := range ch.lines {
 				if s != nil {
-					m.res[m.currDoc].index[m.currChunk][i] = m.prog.FindAllIndex(*s, 1)
-					if len(m.res[m.currDoc].index[m.currChunk][i]) > 0 {
-						m.matches[m.currDoc] = append(m.matches[m.currDoc], ch.lines[i])
-						m.matchLines[m.currDoc] = append(m.matchLines[m.currDoc], m.currChunk*ChunkSize+i)
+					if m.prog.replace == nil {
+						// only finding
+						m.matchIndex[m.currDoc].index[m.currChunk][i] = m.prog.Find(*s)
+						if len(m.matchIndex[m.currDoc].index[m.currChunk][i]) > 0 {
+							m.output[m.currDoc] = append(m.output[m.currDoc], ch.lines[i])
+							m.matchLines[m.currDoc] = append(m.matchLines[m.currDoc], m.currChunk*ChunkSize+i)
+						}
+					} else {
+						// replacing
+						oldBounds, newBounds, res := m.prog.Replace(*s)
+
+						m.matchIndex[m.currDoc].index[m.currChunk][i] = oldBounds
+						m.subIndex[m.currDoc].index[m.currChunk][i] = newBounds
+						if len(m.matchIndex[m.currDoc].index[m.currChunk][i]) > 0 {
+							m.output[m.currDoc] = append(m.output[m.currDoc], &res)
+							m.matchLines[m.currDoc] = append(m.matchLines[m.currDoc], m.currChunk*ChunkSize+i)
+						}
 					}
 				}
 			}
@@ -132,8 +148,8 @@ func (m *Machine) Loop() {
 
 	// send results
 	m.doneChan <- &Output{
-		output:  m.matches,
-		replace: m.replace,
+		output:  m.output,
+		replace: m.prog.replace != nil,
 	}
 }
 
@@ -152,9 +168,9 @@ func (m *Machine) UpdateDoc(d []*Doc, final bool) {
 
 // UpdateMachine updates the regexp if possible
 func (m *Machine) UpdateMachine(q Query) {
-	r, err := regexp.Compile(q.input)
+	p := NewProg(q.input)
 
-	if len(q.input) == 0 || err != nil {
+	if len(q.input) == 0 || p == nil {
 		// not proper regexp
 		m.mu.Lock()
 		m.prog = nil
@@ -168,11 +184,12 @@ func (m *Machine) UpdateMachine(q Query) {
 	if m.v < q.v {
 		// only update if newer query
 		m.v = q.v
-		for i := range m.matches {
-			m.matches[i] = make([]*[]byte, 0)
+		for i := range m.matchIndex {
+			m.output[i] = make([]*[]byte, 0)
 			m.matchLines[i] = make([]int, 0)
 		}
-		m.prog = r
+		m.prog = p
+
 		m.currDoc = 0
 		m.currChunk = 0
 
@@ -198,7 +215,7 @@ func (m *Machine) Snapshot() *Result {
 		bounds:     make([]*Bounds, 0),
 		matchLines: make([][]int, len(m.matchLines)),
 		v:          m.v,
-		replace:    m.replace,
+		replace:    m.prog.replace != nil,
 	}
 
 	for i, l := range m.matchLines {
@@ -206,7 +223,7 @@ func (m *Machine) Snapshot() *Result {
 		copy(res.matchLines[i], l)
 	}
 
-	for i, r := range m.res {
+	for i, r := range m.matchIndex {
 		b := Bounds{}
 
 		if i < m.currDoc {

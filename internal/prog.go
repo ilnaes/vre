@@ -1,7 +1,6 @@
 package vre
 
 import (
-	"errors"
 	"regexp"
 	"strings"
 )
@@ -46,10 +45,15 @@ type Prog struct {
 	n       int
 }
 
-func NewProg(i *Input) *Prog {
+func NewProg(s string) *Prog {
+	i := Parse(s)
+	if i == nil {
+		return nil
+	}
+
 	ret := Prog{}
 
-	// replace escaped / in pattern with just /
+	// replace escaped \/ in pattern with just /
 	re, e := regexp.Compile(strings.ReplaceAll(i.pattern, `\/`, `/`))
 	if e != nil {
 		return nil
@@ -68,17 +72,26 @@ func (p *Prog) Find(s []byte) [][]int {
 
 // Replace returns (in order) the indices of the matches in the original
 // string, the indices of the replacements in the new string, and the new string
-func (p *Prog) Replace(s []byte) ([][]int, [][]int, []byte, error) {
+func (p *Prog) Replace(s []byte) ([][]int, [][]int, []byte) {
 	if p.replace == nil {
-		return nil, nil, nil, errors.New("No replace")
+		panic("Shouldn't be here")
 	}
 
 	res := []byte{}
 	submatches := p.re.FindAllSubmatchIndex(s, p.n)
+	nbounds := make([][]int, 0)
+	prev := 0
 
 	for _, submatch := range submatches {
+		res = append(res, s[prev:submatch[0]]...)
+		old := len(res)
 		res = p.re.Expand(res, []byte(*p.replace), s, submatch)
+		nbounds = append(nbounds, []int{old, len(res)})
+
+		prev = submatch[1]
 	}
 
-	return submatches, nil, res, nil
+	res = append(res, s[prev:len(s)]...)
+
+	return submatches, nbounds, res
 }
