@@ -87,7 +87,7 @@ func Run() {
 
 		for i, d := range res.output {
 			for _, line := range d {
-				if files == 1 {
+				if !res.replace && files == 1 {
 					os.Stdout.WriteString(re.doc[i].filename + ":")
 				}
 				os.Stdout.Write(*line)

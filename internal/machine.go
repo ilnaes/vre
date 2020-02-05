@@ -12,8 +12,9 @@ type Output struct {
 
 // Result goes to tui for display
 type Result struct {
-	bounds     []*Bounds
-	rBounds    []*Bounds
+	matchIndex []*Bounds
+	subIndex   []*Bounds
+	output     [][]*[]byte
 	matchLines [][]int
 	v          int
 	replace    bool
@@ -113,8 +114,8 @@ func (m *Machine) Loop() {
 
 						m.matchIndex[m.currDoc].index[m.currChunk][i] = oldBounds
 						m.subIndex[m.currDoc].index[m.currChunk][i] = newBounds
+						m.output[m.currDoc] = append(m.output[m.currDoc], &res)
 						if len(m.matchIndex[m.currDoc].index[m.currChunk][i]) > 0 {
-							m.output[m.currDoc] = append(m.output[m.currDoc], &res)
 							m.matchLines[m.currDoc] = append(m.matchLines[m.currDoc], m.currChunk*ChunkSize+i)
 						}
 					}
@@ -212,7 +213,7 @@ func (m *Machine) Finish() {
 // It is called inside a critical section
 func (m *Machine) Snapshot() *Result {
 	res := Result{
-		bounds:     make([]*Bounds, 0),
+		matchIndex: make([]*Bounds, 0),
 		matchLines: make([][]int, len(m.matchLines)),
 		v:          m.v,
 		replace:    m.prog.replace != nil,
@@ -237,7 +238,34 @@ func (m *Machine) Snapshot() *Result {
 			break
 		}
 
-		res.bounds = append(res.bounds, &b)
+		res.matchIndex = append(res.matchIndex, &b)
+	}
+
+	if m.prog.replace != nil {
+		res.output = make([][]*[]byte, 0)
+		for i, d := range m.output {
+			res.output = append(res.output, make([]*[]byte, len(d)))
+			copy(res.output[i], d)
+		}
+
+		res.subIndex = make([]*Bounds, 0)
+
+		for i, r := range m.subIndex {
+			b := Bounds{}
+
+			if i < m.currDoc {
+				// a previous doc so copy everything
+				b.index = make([][ChunkSize][][]int, len(m.doc[i].chunks))
+				copy(b.index, r.index)
+			} else if i == m.currDoc {
+				b.index = make([][ChunkSize][][]int, m.currChunk)
+				copy(b.index, r.index[:m.currChunk])
+			} else {
+				break
+			}
+
+			res.subIndex = append(res.subIndex, &b)
+		}
 	}
 
 	return &res

@@ -43,9 +43,7 @@ func expandTabs(s []byte, bounds [][]int) (string, [][]int) {
 			buf.Write(s[last:j])
 
 			n := TABSTOP - buf.Len()%TABSTOP
-			for k := 0; k < n; k++ {
-				buf.WriteRune(' ')
-			}
+			buf.Write([]byte(strings.Repeat(" ", n)))
 
 			pad += n - 1
 			last = j + 1
@@ -79,20 +77,23 @@ func expandTabs(s []byte, bounds [][]int) (string, [][]int) {
 }
 
 // getLine will expand the tabs and color the text between intervals in bnds
+// it also pads out the line with spaces until it is b-a length
 func getLine(s []byte, bnds [][]int, a, b int, color string) string {
 	line, bounds := expandTabs(s, bnds)
+	L := len(line)
 
-	if a > len(line) {
-		return "\r\n"
+	if L > b {
+		L = b
 	}
-	if b > len(line) {
-		b = len(line)
+
+	if a > L {
+		return strings.Repeat(" ", b-a)
 	}
 
 	buf := ""
 	if bounds == nil || len(bounds) == 0 {
 		// all ways the intervals might not exist
-		buf = "\x1b[38;5;244m" + line[a:b] + "\x1b[0m"
+		buf = "\x1b[38;5;244m" + line[a:L] + "\x1b[0m"
 	} else {
 		last := a
 		buf = "\x1b[1m\x1b[38;5;253m"
@@ -106,26 +107,44 @@ func getLine(s []byte, bnds [][]int, a, b int, color string) string {
 			if I[0] < a {
 				I[0] = a
 			}
-			if I[0] > b {
-				I[0] = b
+			if I[0] > L {
+				I[0] = L
 			}
-			if I[1] > b {
-				I[1] = b
+			if I[1] > L {
+				I[1] = L
 			}
 
 			buf += line[last:I[0]] + color
 			buf += line[I[0]:I[1]] + "\x1b[38;5;253m"
 			last = I[1]
 
-			if last == b {
+			if last == L {
 				break
 			}
 		}
 
-		buf += line[last:b] + "\x1b[0m"
+		buf += line[last:L] + "\x1b[0m"
+	}
+	if len(line) < b {
+		buf += strings.Repeat(" ", b-len(line))
 	}
 
-	return buf + "\r\n"
+	return buf
+}
+
+func getSplitLine(match []byte, matchIndex [][]int, sub []byte, subIndex [][]int, start, end int, color string) string {
+	w := (end - start) / 2
+	d := (end-start)%2 == 0
+
+	line := getLine(match, matchIndex, start, start+w, color)
+	line += "\u2502"
+
+	if d {
+		line += getLine(sub, subIndex, start, start+w-3, color)
+	} else {
+		line += getLine(sub, subIndex, start, start+w-2, color)
+	}
+	return line
 }
 
 type Query struct {
@@ -410,13 +429,23 @@ func (t *Terminal) Refresh() {
 					buf.WriteString("\x1b[K")
 
 					line := ""
-					if t.result != nil && len(t.result.bounds) > d && len(t.result.bounds[d].index) > ch {
-						line = getLine(*chunk.lines[i], t.result.bounds[d].index[ch][i], t.posX, t.posX+t.width, matchColor)
+					if t.result != nil && len(t.result.matchIndex) > d && len(t.result.matchIndex[d].index) > ch {
+						if t.result.output == nil {
+							line = getLine(*chunk.lines[i], t.result.matchIndex[d].index[ch][i], t.posX, t.posX+t.width, matchColor)
+						} else {
+							line = getSplitLine(*chunk.lines[i], t.result.matchIndex[d].index[ch][i], *t.result.output[d][ch*ChunkSize+i],
+								t.result.subIndex[d].index[ch][i], t.posX, t.posX+t.width, matchColor)
+						}
 					} else {
 						// there is no bounds for this
-						line = getLine(*chunk.lines[i], nil, t.posX, t.posX+t.width, matchColor)
+						if t.result == nil || t.result.output == nil {
+							line = getLine(*chunk.lines[i], nil, t.posX, t.posX+t.width, matchColor)
+						} else {
+							line = getLine(*chunk.lines[i], nil, t.posX, t.posX+t.width, matchColor)
+						}
 					}
 					buf.WriteString(line)
+					buf.WriteString("\r\n")
 					nrows++
 
 					if nrows > t.height-3 {
@@ -457,8 +486,9 @@ func (t *Terminal) Refresh() {
 
 					buf.WriteString("\x1b[K")
 
-					line := getLine(*chunk.lines[j], t.result.bounds[d].index[ch][j], t.posX, t.posX+t.width, matchColor)
+					line := getLine(*chunk.lines[j], t.result.matchIndex[d].index[ch][j], t.posX, t.posX+t.width, matchColor)
 					buf.WriteString(line)
+					buf.WriteString("\r\n")
 					nrows++
 
 					if nrows > t.height-3 {
@@ -548,18 +578,18 @@ func (t *Terminal) UpdateBounds(x *Result) {
 
 	// refresh the display if got a new version of result and got enough chunks
 	if !t.displayed {
-		n := len(t.result.bounds) - 1
+		n := len(t.result.matchIndex) - 1
 		numLines := 0
 
-		for d := 0; d < len(t.result.bounds); d++ {
-			if len(t.result.bounds[d].index) == len(t.doc[d].chunks) {
+		for d := 0; d < len(t.result.matchIndex); d++ {
+			if len(t.result.matchIndex[d].index) == len(t.doc[d].chunks) {
 				numLines += t.doc[d].numLines + t.files
 			} else {
-				numLines += t.files + len(t.result.bounds[d].index)*ChunkSize
+				numLines += t.files + len(t.result.matchIndex[d].index)*ChunkSize
 			}
 		}
 
-		if (len(t.result.bounds) == len(t.doc) && len(t.result.bounds[n].index) == len(t.doc[n].chunks)) ||
+		if (len(t.result.matchIndex) == len(t.doc) && len(t.result.matchIndex[n].index) == len(t.doc[n].chunks)) ||
 			numLines > t.posY+t.height {
 			t.displayed = true
 			refresh = true
