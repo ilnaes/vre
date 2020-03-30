@@ -14,7 +14,7 @@ type Output struct {
 type Result struct {
 	matchIndex []*Bounds
 	subIndex   []*Bounds
-	output     [][]*[]byte
+	output     [][]*[]byte // replaced output, nil if just matching
 	matchLines [][]int
 	v          int
 	replace    bool

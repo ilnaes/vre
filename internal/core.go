@@ -63,8 +63,8 @@ func Run() {
 					done = true
 					early = true
 
-				case EvtHeartbeat:
-					tui.UpdatePrompt(v.(string))
+				// case EvtHeartbeat:
+				// 	tui.UpdatePrompt(v.(string))
 
 				default:
 

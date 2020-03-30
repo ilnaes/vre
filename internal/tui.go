@@ -154,7 +154,7 @@ type Query struct {
 
 // Terminal acts as the view
 type Terminal struct {
-	fd        int
+	tty       *os.File
 	origState *terminal.State
 	mainEb    *EventBox
 	mu        sync.Mutex
@@ -184,6 +184,10 @@ func NewTerminal(eb *EventBox) *Terminal {
 		mainEb: eb,
 		mu:     sync.Mutex{},
 	}
+}
+
+func (t *Terminal) fd() int {
+	return int(t.tty.Fd())
 }
 
 func (t *Terminal) Loop() {
@@ -317,22 +321,18 @@ Loop:
 
 func (t *Terminal) getch(ch chan<- int) {
 	b := make([]byte, 1)
+	syscall.SetNonblock(t.fd(), false)
 
 	done := false
 	for !done {
-		_, err := syscall.Read(t.fd, b)
+		_, err := syscall.Read(t.fd(), b)
 		if err != nil {
-			// TODO: figure out why the fd becomes bad
-			t.openConsole()
-			_, err = syscall.Read(t.fd, b)
-			if err != nil {
-				panic(err)
-			}
+			panic(t.fd())
 		}
 
 		if b[0] == KEY_ESC {
 			// escaped
-			syscall.Read(t.fd, b)
+			syscall.Read(t.fd(), b)
 
 			if b[0] != 91 {
 				// not escape sequence
@@ -340,14 +340,14 @@ func (t *Terminal) getch(ch chan<- int) {
 				continue
 			}
 
-			syscall.Read(t.fd, b)
+			syscall.Read(t.fd(), b)
 
 			if b[0] == 68 {
 				ch <- KEY_LEFT
 			} else if b[0] == 67 {
 				ch <- KEY_RIGHT
 			} else if b[0] == 51 {
-				syscall.Read(t.fd, b)
+				syscall.Read(t.fd(), b)
 				if b[0] == 126 {
 					ch <- KEY_DEL
 				}
@@ -614,6 +614,9 @@ func (t *Terminal) UpdatePrompt(s string) {
 func (t *Terminal) UpdateChunks(docs []*Doc, final bool) {
 	t.mu.Lock()
 
+	// update the view if new relevant chunks came in
+	refresh := t.doc == nil
+
 	t.doc = docs
 
 	oldLines := t.numLines
@@ -622,8 +625,7 @@ func (t *Terminal) UpdateChunks(docs []*Doc, final bool) {
 		t.numLines += d.numLines
 	}
 
-	// update the view if new relevant chunks came in
-	refresh := t.doc == nil || (oldLines < t.posX+t.height && t.numLines >= t.posX+t.height)
+	refresh = refresh || (oldLines < t.posX+t.height && t.numLines >= t.posX+t.height)
 
 	t.mu.Unlock()
 
@@ -636,7 +638,7 @@ func (t *Terminal) UpdateChunks(docs []*Doc, final bool) {
 
 // GetSize updates the size of the terminal
 func (t *Terminal) GetSize() {
-	w, h, err := terminal.GetSize(t.fd)
+	w, h, err := terminal.GetSize(t.fd())
 	if err != nil {
 		t.Close()
 		log.Fatal("Could not get terminal size")
@@ -651,13 +653,13 @@ func (t *Terminal) Init(files int) {
 
 	t.openConsole()
 
-	origState, err := terminal.GetState(t.fd)
+	origState, err := terminal.GetState(t.fd())
 	if err != nil {
 		log.Fatal("Could not get terminal state")
 	}
 
 	t.origState = origState
-	terminal.MakeRaw(t.fd)
+	terminal.MakeRaw(t.fd())
 	t.GetSize()
 
 	fmt.Fprint(os.Stderr, "\x1b[?1049h")
@@ -666,10 +668,10 @@ func (t *Terminal) Init(files int) {
 // Close closes alternate screen buffer and restores original terminal state
 func (t *Terminal) Close() {
 	fmt.Fprint(os.Stderr, "\x1b[?1049l")
-	err := terminal.Restore(t.fd, t.origState)
+	err := terminal.Restore(t.fd(), t.origState)
 	if err != nil {
 		t.openConsole()
-		terminal.Restore(t.fd, t.origState)
+		terminal.Restore(t.fd(), t.origState)
 	}
 }
 
@@ -678,5 +680,5 @@ func (t *Terminal) openConsole() {
 	if err != nil {
 		panic(err)
 	}
-	t.fd = int(tty.Fd())
+	t.tty = tty
 }
